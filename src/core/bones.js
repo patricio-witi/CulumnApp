@@ -19,10 +19,19 @@ async function pickDecoder() {
 export async function loadBoneData(base = 'assets/', onProgress) {
   const [json, bin] = await Promise.all([
     fetch(base + 'bones.json').then((r) => { if (!r.ok) throw new Error('No se pudo cargar bones.json'); return r.json(); }),
-    fetchWithProgress(base + 'bones.bin', onProgress),
+    (typeof window !== 'undefined' && window.__BONES_B64)
+      ? fetch(base + window.__BONES_B64).then((r) => { if (!r.ok) throw new Error('No se pudo cargar los huesos'); return r.text(); }).then(b64ToBuffer)
+      : fetchWithProgress(base + 'bones.bin', onProgress),
   ]);
   await pickDecoder();
   return { json, bin };
+}
+
+function b64ToBuffer(txt) {
+  const bin = atob(txt.trim());
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
 }
 
 async function fetchWithProgress(url, onProgress) {

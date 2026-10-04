@@ -35,8 +35,10 @@ ${page.replace(/<title>[\s\S]*?<\/title>/, '').replace(/<link[^>]*>/g, '').repla
 `;
 writeFileSync('docs/index.html', full);
 mkdirSync('dist-artifact/assets', { recursive: true });
-writeFileSync('dist-artifact/index.html', page);
+// El visor de artifacts no sirve .bin: allí los huesos viajan como texto base64
+writeFileSync('dist-artifact/index.html', page.replace('<script type="module" src="app.js"></script>', '<script>window.__BONES_B64 = "bones.txt";</script>\n<script type="module" src="app.js"></script>'));
 copyFileSync('docs/app.js', 'dist-artifact/app.js');
-for (const f of ['bones.bin', 'bones.json']) if (existsSync('docs/assets/' + f)) copyFileSync('docs/assets/' + f, 'dist-artifact/assets/' + f);
+if (existsSync('docs/assets/bones.json')) copyFileSync('docs/assets/bones.json', 'dist-artifact/assets/bones.json');
+if (existsSync('docs/assets/bones.bin')) writeFileSync('dist-artifact/assets/bones.txt', readFileSync('docs/assets/bones.bin').toString('base64'));
 writeFileSync('docs/.nojekyll', '');
 console.log('ok: docs/ y dist-artifact/');
