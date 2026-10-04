@@ -67,10 +67,10 @@ export class UI {
     try { const t = localStorage.getItem('columna-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) { /* sin almacenamiento */ }
     $('#about-btn').addEventListener('click', () => { $('#about-body').innerHTML = ABOUT; $('#about').showModal(); });
     $('#about-close').addEventListener('click', () => $('#about').close());
-    $('#mobile-toggle').addEventListener('click', () => $('#layers').classList.toggle('open'));
+    $('#mobile-toggle').addEventListener('click', () => { const open = $('#layers').classList.toggle('open'); $('#side').classList.toggle('collapsed', open); $('#side-collapse').textContent = open ? 'Mostrar' : 'Ocultar'; this.app.updateViewOffset(); });
     const col = $('#side-collapse');
     if (this.app.isMobile) col.hidden = false;
-    col.addEventListener('click', () => { const s = $('#side'); s.classList.toggle('collapsed'); col.textContent = s.classList.contains('collapsed') ? 'Mostrar' : 'Ocultar'; });
+    col.addEventListener('click', () => { const s = $('#side'); s.classList.toggle('collapsed'); col.textContent = s.classList.contains('collapsed') ? 'Mostrar' : 'Ocultar'; $('#layers').classList.remove('open'); this.app.updateViewOffset(); });
   }
 
   showTab(tab) {
@@ -78,6 +78,9 @@ export class UI {
     for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
     $('#side-title').textContent = { explore: 'Explorar', move: 'Movimiento', case: 'Mi columna', class: 'Clase' }[tab];
     $('#side').classList.remove('collapsed');
+    $('#layers').classList.remove('open');
+    if ($('#side-collapse')) $('#side-collapse').textContent = 'Ocultar';
+    requestAnimationFrame(() => this.app.updateViewOffset());
     this.side.innerHTML = '';
     this.side.scrollTop = 0;
     if (tab === 'explore') this.renderExplore();
@@ -435,7 +438,7 @@ export class UI {
   focusDiscs() {
     const app = this.app;
     app.setDissection(1);
-    Object.assign(app.layerState, { ligaments: false, neural: true, peripheral: true, dura: false, discs: true });
+    Object.assign(app.layerState, { ligaments: false, neural: true, peripheral: true, dura: false, discs: true, pelvis: false });
     app.applyLayers();
     this.syncLayerChecks();
     $('#dissect').value = 1; $('#dissect-out').textContent = 'Ligamentos y nervios';
@@ -487,7 +490,7 @@ export class UI {
     if (L.abdomen === false) app.layerState.muscle6 = false;
     Object.assign(app.layerState, {
       ligaments: L.ligaments ?? true, neural: L.nerves ?? true, peripheral: L.nerves ?? true, dura: L.dura ?? (L.nerves ?? true),
-      discs: L.discs ?? true, skin: !!L.skin, fascia: !!L.fascia, vertebrae: true, pelvis: true, skull: true, thorax: true, limbs: true,
+      discs: L.discs ?? true, skin: !!L.skin, fascia: !!L.fascia, vertebrae: true, pelvis: L.pelvis ?? true, skull: L.skull ?? true, thorax: true, limbs: true,
     });
     app.isolated = null;
     app.discs.setXray(!!L.discXray);
@@ -502,14 +505,17 @@ export class UI {
     this.setColor(step.color || 'anat');
     app.setClip(step.clip ? { mode: step.clip.mode, level: step.clip.level || 'L4-L5', offset: 0 } : { mode: 'none' });
     this.syncClip();
-    if (step.pose) { app.animator.stop(); app.posture.set(step.pose); app.dirty = true; }
-    if (step.animate && animate) app.animator.play(step.animate);
+    app.animator.stop();
+    if (step.pose) app.posture.set(step.pose);
+    else if (step.animate) app.posture.set({ ...DEFAULT_STATE });
+    app.dirty = true;
     app.view(step.view);
+    if (step.animate && animate) app.animator.play(step.animate);
     // resaltar estructuras
     app.select(null);
     if (step.highlight) {
       const it = app.itemByKey[step.highlight[0]];
-      if (it) { app.selected = it; if (it.kind === 'bone' || it.kind === 'disc') it.mesh.material.userData.uniforms.uHighlight.value.setRGB(0.14, 0.1, 0.02); }
+      if (it) { app.selected = it; if (it.kind === 'bone' || it.kind === 'disc') it.mesh.material.userData.uniforms.uHighlight.value.setRGB(0.28, 0.18, 0.03); }
       for (const k of step.highlight.slice(1)) { const o = app.itemByKey[k]; if (o?.strands) for (const s of o.strands) s.hl = 1; }
       app._extraHL = step.highlight.slice(1).map((k) => app.itemByKey[k]).filter(Boolean);
       app.dirty = true;

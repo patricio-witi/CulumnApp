@@ -16,6 +16,7 @@ const server = createServer((req, res) => {
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: +w, height: +h } });
 const logs = [];
+if (process.env.NOWASM) await page.addInitScript(() => { delete window.WebAssembly; });
 page.on('console', (m) => { if (m.type() !== 'log' || process.env.LOG) logs.push(m.type() + ': ' + m.text()); });
 page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
 await page.goto(`http://localhost:${server.address().port}/?shot${process.env.Q || ''}`);

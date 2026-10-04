@@ -1,14 +1,27 @@
 // Carga de las mallas óseas precalculadas y material de hueso (con cartílago y corte esponjoso)
 import * as THREE from 'three';
 
-import { MeshoptDecoder } from 'meshoptimizer/decoder';
+import { MeshoptDecoder as WasmDecoder } from 'meshoptimizer/decoder';
+import { MeshoptDecoder as RefDecoder } from '../../node_modules/meshoptimizer/meshopt_decoder_reference.js';
+
+// El decodificador WebAssembly es más rápido; si el entorno bloquea WebAssembly, se usa la versión en JavaScript puro.
+let MeshoptDecoder = RefDecoder;
+async function pickDecoder() {
+  try {
+    if (typeof WebAssembly !== 'object' || !WasmDecoder.supported) return;
+    await Promise.race([WasmDecoder.ready, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000))]);
+    MeshoptDecoder = WasmDecoder;
+  } catch (e) {
+    console.warn('WebAssembly no disponible; usando decodificador JS', e?.message);
+  }
+}
 
 export async function loadBoneData(base = 'assets/', onProgress) {
   const [json, bin] = await Promise.all([
     fetch(base + 'bones.json').then((r) => { if (!r.ok) throw new Error('No se pudo cargar bones.json'); return r.json(); }),
     fetchWithProgress(base + 'bones.bin', onProgress),
   ]);
-  await MeshoptDecoder.ready;
+  await pickDecoder();
   return { json, bin };
 }
 

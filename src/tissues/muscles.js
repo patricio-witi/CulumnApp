@@ -19,7 +19,7 @@ export function buildMuscles(registry) {
         try { strands.push(registry.build(def)); } catch (e) { console.warn(mus.id, e.message); }
       }
       if (!strands.length) continue;
-      const mesh = registry.mesh(strands, mat, { radial: mus.layer >= 5 ? 8 : 10 });
+      const mesh = registry.mesh(strands, mat, { radial: mus.layer >= 5 ? 7 : 8, step: mus.layer >= 5 ? 9 : 6.5 });
       mesh.name = `${mus.id}${side}`;
       const item = { kind: 'muscle', id: mus.id, key: mesh.name, side, name: mus.name, latin: mus.latin, layer: mus.layer, mesh, strands };
       mesh.userData.item = item;

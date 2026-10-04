@@ -112,8 +112,8 @@ export class PostureController {
     // ---- Lateral shift: el tronco se desplaza sobre la pelvis manteniéndose vertical ----
     if (s.shift) {
       const sh = s.shift;
-      const lower = { 'L5-S1': 1.5, 'L4-L5': 4.5, 'L3-L4': 3.5 };
-      const upper = { 'L2-L3': -2.5, 'L1-L2': -2.5, 'T12-L1': -2, 'T11-T12': -1.2, 'T10-T11': -0.8 };
+      const lower = { 'L5-S1': 3, 'L4-L5': 4.5, 'L3-L4': 7 };
+      const upper = { 'L2-L3': -5, 'L1-L2': -4.5, 'T12-L1': -3, 'T11-T12': -1.5, 'T10-T11': -0.5 };
       for (const [id, v] of Object.entries(lower)) out[id].lat += v * sh;
       for (const [id, v] of Object.entries(upper)) out[id].lat += v * sh;
       // rotación acoplada leve y pérdida de lordosis (cifosis antiálgica)

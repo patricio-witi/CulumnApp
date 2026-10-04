@@ -121,7 +121,7 @@ export function tissueMaterial(kind, opts = {}) {
           diffuseColor.rgb += hl * vec3(0.25, 0.22, 0.05);
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance += uHighlight;
+        totalEmissiveRadiance += uHighlight + vState.z * vec3(0.32, 0.22, 0.04);
         ${kind === 'nerve' ? 'totalEmissiveRadiance += vec3(0.6, 0.04, 0.02) * clamp(vState.w, 0.0, 1.0) * (0.6 + 0.4 * sin(uTime * 5.0));' : ''}
         ${kind === 'muscle' ? 'if (uMode > 1.5) totalEmissiveRadiance += vec3(0.35, 0.08, 0.02) * smoothstep(0.3, 1.0, vState.y);' : ''}`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>

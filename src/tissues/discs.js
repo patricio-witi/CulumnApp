@@ -18,7 +18,7 @@ export const PFIRRMANN = {
 export const HERNIA = {
   none: { mag: 0, sigma: 0.3, blob: 0, label: 'Sin hernia' },
   bulge: { mag: 2.2, sigma: 0.95, blob: 0, label: 'Abombamiento (>25 % de la circunferencia)' },
-  protrusion: { mag: 3.6, sigma: 0.3, blob: 3.2, label: 'Protrusión (base más ancha que la cúpula)' },
+  protrusion: { mag: 3.6, sigma: 0.3, blob: 3.8, label: 'Protrusión (base más ancha que la cúpula)' },
   extrusion: { mag: 4.2, sigma: 0.24, blob: 5.2, label: 'Extrusión (cúpula más ancha que la base)' },
   sequestration: { mag: 2.8, sigma: 0.22, blob: 4.6, label: 'Secuestro (fragmento libre)' },
 };
@@ -175,7 +175,7 @@ export class DiscSystem {
       const G = PFIRRMANN[grade];
       d.grade = grade;
       d.nucleus.material.color.setHex(G.nColor);
-      d.blob.material.color.setHex(G.nColor).offsetHSL(0, 0, -0.05);
+      d.blob.material.color.setHex(0xe8e2c4);
       d.aColor = new THREE.Color(G.aColor);
       d.hern = pt?.hern || 'none';
       d.zone = pt?.zone || 'paracentral';
@@ -214,15 +214,15 @@ export class DiscSystem {
       d.state.compAnt = cA / norm; d.state.compPost = cP / norm; d.state.compL = cL / norm; d.state.compR = cR / norm;
       d.state.meanH = hSum / N;
       // migración del núcleo (mm, en el plano del disco): hacia el lado que se abre
-      const shiftZ = THREE.MathUtils.clamp(-(d.state.compAnt - d.state.compPost) * 1.1, -d.D * 0.18, d.D * 0.18);
-      const shiftX = THREE.MathUtils.clamp(-(d.state.compL - d.state.compR) * 1.1, -d.W * 0.16, d.W * 0.16);
+      const shiftZ = THREE.MathUtils.clamp(-(d.state.compAnt - d.state.compPost) * 0.38, -d.D * 0.08, d.D * 0.08);
+      const shiftX = THREE.MathUtils.clamp(-(d.state.compL - d.state.compR) * 0.38, -d.W * 0.07, d.W * 0.07);
       d.state.nucleusShift.set(shiftX, shiftZ);
       const G = PFIRRMANN[d.grade || 1];
       const H = HERNIA[d.hern || 'none'];
       const hAngle = d.hern !== 'none' ? (d.side === 'L' ? ZONES[d.zone].angle : Math.PI * 2 - ZONES[d.zone].angle) : 0;
       // empuje del núcleo hacia la hernia (protrusiones contenidas cambian con la postura)
       const push = d.hern !== 'none' ? shiftX * Math.sin(hAngle) + shiftZ * Math.cos(hAngle) : 0;
-      const pushN = THREE.MathUtils.clamp(push / 2.2, -0.8, 1.6);
+      const pushN = THREE.MathUtils.clamp(push / 0.8, -0.8, 1.6);
       d.state.push = pushN;
       const hMag = H.mag * (1 + (d.hern === 'sequestration' ? 0 : 0.55 * pushN));
       const degBulge = (d.grade >= 3 ? 0.4 : 0) + (d.grade >= 4 ? 0.5 : 0);
@@ -279,7 +279,7 @@ export class DiscSystem {
         rad.set(xl, 0, zl).applyQuaternion(qMid).normalize();
         const wall = bot.clone().lerp(top, 0.5);
         const r = H.blob * (1 + 0.4 * Math.max(-0.5, pushN)) * (d.hern === 'sequestration' ? 1 : 1);
-        const c = wall.addScaledVector(rad, hMag * 0.75 + r * 0.35);
+        const c = wall.addScaledVector(rad, hMag * 0.85 + r * 0.55);
         const sc = new THREE.Vector3(r * 1.05, r * (d.hern === 'extrusion' ? 1.5 : d.hern === 'sequestration' ? 1.2 : 0.75), r * 0.85);
         if (d.hern === 'sequestration') c.add(new THREE.Vector3(0, -(d.seg.disc * 0.6 + 6), 0).applyQuaternion(qMid));
         const qq = qMid.clone().multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(xl, 0, zl).normalize()));

@@ -40,7 +40,7 @@ export class StrandRegistry {
       const def = st.def;
       const P = st.anchors.map((a) => a.rest);
       const n = P.length;
-      const perSpan = def.seg ?? Math.max(4, Math.round(st.restLen / (n - 1) / 4));
+      const perSpan = def.seg ?? Math.max(3, Math.round(st.restLen / (n - 1) / (opts.step ?? 6.5)));
       const curve = new THREE.CatmullRomCurve3(P, false, 'centripetal', 0.5);
       const R = typeof def.r[0] === 'number' ? P.map(() => def.r) : def.r;
       const samples = [];

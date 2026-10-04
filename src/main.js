@@ -267,16 +267,17 @@ async function boot() {
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const views = {
       postFull: () => { const t = R('T12', [0, -40, 0]); return [t.clone().add(V(-300, 160, -1850)), t]; },
-      lateralFull: () => { const t = R('T12', [0, -60, 40]); return [t.clone().add(V(-1950, 140, 120)), t]; },
-      lateralMotion: () => { const t = R('S1', [0, 60, 0]).add(V(0, 0, 230)); return [t.clone().add(V(-2300, 260, 160)), t]; },
+      lateralFull: () => { const t = R('T12', [0, -20, 40]); return [t.clone().add(V(-2300, 160, 140)), t]; },
+      lateralMotion: () => { const t = R('S1', [0, 80, 0]).add(V(0, 0, 320)); return [t.clone().add(V(-2600, 300, 180)), t]; },
+      frontObl: () => { const t = R('T12', [0, -30, 30]); return [t.clone().add(V(-950, 380, 1350)), t]; },
       antFull: () => { const t = R('T12'); return [t.clone().add(V(320, 140, 1850)), t]; },
       postObl: () => { const t = R('T12', [0, 20, 0]); return [t.clone().add(V(-1080, 520, -1500)), t]; },
       lumbarPostObl: () => { const t = P('L3', [0, 0, -20]); return [t.clone().add(V(-300, 190, -420)), t]; },
       postLumbar: () => { const t = P('L2', [0, -20, -20]); return [t.clone().add(V(-80, 140, -760)), t]; },
       lumbarLat: () => { const t = P('L3', [0, 0, -10]); return [t.clone().add(V(-520, 50, 30)), t]; },
-      l4Close: () => { const t = P('L4', [0, 0, -18]); return [t.clone().add(V(-170, 140, -170)), t]; },
+      l4Close: () => { const t = P('L4', [0, 0, -18]); return [t.clone().add(V(-230, 190, -240)), t]; },
       l45Close: () => { const t = P('L4', [0, -20, 0]); return [t.clone().add(V(-170, 80, 150)), t]; },
-      l45Lat: () => { const t = P('L4', [0, -22, -10]); return [t.clone().add(V(-340, 40, 50)), t]; },
+      l45Lat: () => { const t = P('L4', [0, -22, -6]); return [t.clone().add(V(-330, 120, 70)), t]; },
       nerveObl: () => { const t = P('L4', [0, 0, -10]); return [t.clone().add(V(-340, 180, -320)), t]; },
       axialL45: () => {
         const d = discs.byId[app.clip.mode === 'axial' ? app.clip.level : 'L4-L5'] || discs.byId['L4-L5'];
@@ -322,20 +323,23 @@ async function boot() {
   };
   function setHL(it, on) {
     const u = it.mesh.material.userData.uniforms;
-    if (u?.uHighlight) u.uHighlight.value.setRGB(on ? 0.14 : 0, on ? 0.1 : 0, on ? 0.02 : 0);
+    if (u?.uHighlight) u.uHighlight.value.setRGB(on ? 0.28 : 0, on ? 0.18 : 0, on ? 0.03 : 0);
   }
 
   app.updateViewOffset = () => {
     const W = el.clientWidth, H = el.clientHeight;
-    let ox = 0;
+    let ox = 0, oy = 0;
+    const sp = document.getElementById('side').getBoundingClientRect();
     if (!matchMedia('(max-width: 820px)').matches) {
       const lp = document.getElementById('layers').getBoundingClientRect();
-      const sp = document.getElementById('side').getBoundingClientRect();
       const left = lp.width ? lp.right : 0, right = sp.width ? sp.left : W;
       ox = (left + right) / 2 - W / 2;
+    } else {
+      const top = 100, bottom = sp.height ? sp.top : H - 60;
+      oy = (top + bottom) / 2 - H / 2;
     }
     app.viewOffsetX = ox;
-    if (Math.abs(ox) > 1) camera.setViewOffset(W, H, -ox, 0, W, H); else camera.clearViewOffset();
+    if (Math.abs(ox) > 1 || Math.abs(oy) > 1) camera.setViewOffset(W, H, -ox, -oy, W, H); else camera.clearViewOffset();
     document.documentElement.style.setProperty('--free-center', `${W / 2 + ox}px`);
   };
   // ---------- interfaz ----------
@@ -374,7 +378,7 @@ async function boot() {
     app.updateViewOffset();
   };
   addEventListener('resize', resize);
-  app.render = () => { app.simulate(); if (app.clip.mode === 'axial') app.setClip({}); if (tween) { camera.position.copy(tween.p1); controls.target.copy(tween.t1); tween = null; } controls.update(); renderer.render(scene, camera); };
+  app.render = () => { app.simulate(); if (app.clip.mode === 'axial') app.setClip({}); if (tween) { camera.position.copy(tween.p1); controls.target.copy(tween.t1); tween = null; } controls.update(); renderer.render(scene, camera); app.ui.syncSliders(); app.ui.updateMetrics(); };
   app.setView = (p, t) => { camera.position.set(...p); controls.target.set(...t); controls.update(); };
   if (!SHOT) renderer.setAnimationLoop(loop);
   window.__ready = true;

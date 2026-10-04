@@ -125,7 +125,7 @@ export const LESSON = [
   },
   {
     title: 'Rotación',
-    view: 'topDown',
+    view: 'frontObl',
     layers: { muscles: 6, ligaments: false, nerves: false, discs: true },
     color: 'activity',
     animate: [{ t: 2, state: { ...NEUTRAL, rot: 0.9 } }],
@@ -136,7 +136,7 @@ export const LESSON = [
   {
     title: 'Discopatía: qué cambia en el disco',
     view: 'l45Lat',
-    layers: { muscles: 0, ligaments: true, nerves: true, discs: true },
+    layers: { muscles: 0, ligaments: true, nerves: true, discs: true, pelvis: false },
     color: 'anat',
     animate: [{ t: 1, state: { ...NEUTRAL } }],
     pathology: { 'L4-L5': { grade: 4, hern: 'bulge', zone: 'central', side: 'L' }, 'L5-S1': { grade: 5, hern: 'none' } },

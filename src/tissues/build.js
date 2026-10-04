@@ -22,7 +22,7 @@ export function buildTissueSet(registry, catalog, kindDefault) {
       try { strands.push(registry.build(f)); } catch (e) { console.warn(item.id, e.message); }
     }
     if (!strands.length) continue;
-    const mesh = registry.mesh(strands, matFor(kind), { radial: kind === 'nerve' ? 8 : 8, castShadow: kind !== 'dura' && kind !== 'capsule' });
+    const mesh = registry.mesh(strands, matFor(kind), { radial: kind === 'nerve' ? 7 : 8, step: kind === 'dura' ? 8 : 6, castShadow: kind !== 'dura' && kind !== 'capsule' });
     mesh.name = item.id;
     if (kind === 'dura' || kind === 'capsule') mesh.renderOrder = 2;
     const rec = { ...item, kind: kind === 'dura' || kind === 'capsule' ? kind : kindDefault === 'ligament' ? 'ligament' : 'nerve', key: item.id, mesh, strands };
