@@ -87,6 +87,24 @@ export class SpineRig {
       this.bones[name] = b;
       this.restWorld[name] = new THREE.Matrix4();
     }
+    // Extremidades: húmero (cabeza humeral), antebrazo (codo), tibia (rodilla), pie (tobillo)
+    const LIMBS = [
+      ['humerusL', 'shoulderL', [181, 516, -15]], ['humerusR', 'shoulderR', [-181, 516, -15]],
+      ['forearmL', 'humerusL', [197, 222, -20]], ['forearmR', 'humerusR', [-197, 222, -20]],
+      ['tibiaL', 'femurL', [96, -446, -2]], ['tibiaR', 'femurR', [-96, -446, -2]],
+      ['footL', 'tibiaL', [90, -862, 0]], ['footR', 'tibiaR', [-90, -862, 0]],
+    ];
+    for (const [name, parent, p] of LIMBS) {
+      const b = new THREE.Bone();
+      b.name = name;
+      const pw = new THREE.Vector3(...p);
+      const parentRest = this.restWorld[parent];
+      b.position.copy(pw.clone().applyMatrix4(parentRest.clone().invert()));
+      this.bones[parent].add(b);
+      this.bones[name] = b;
+      this.restWorld[name] = new THREE.Matrix4().makeTranslation(p[0], p[1], p[2]);
+      b.userData.restPos = b.position.clone();
+    }
     this.restInv = {};
     for (const [k, m] of Object.entries(this.restWorld)) this.restInv[k] = m.clone().invert();
 
@@ -98,6 +116,12 @@ export class SpineRig {
     this.pelvisRot = 0;
     this.pelvisList = 0;
     this.hipFlex = { L: 0, R: 0 };
+    this.hip = { L: { abd: 0, rot: 0 }, R: { abd: 0, rot: 0 } };
+    this.knee = { L: 0, R: 0 };
+    this.ankle = { L: 0, R: 0 };
+    this.shoulder = { L: { flex: 0, abd: 0 }, R: { flex: 0, abd: 0 } };
+    this.elbow = { L: 0, R: 0 };
+    this.body = { rx: 0, ry: 0, rz: 0, x: 0, y: 0, z: 0 };
     this.discLoss = {}; // segmento → mm de pérdida de altura
   }
 
@@ -117,8 +141,22 @@ export class SpineRig {
     pel.quaternion.premultiply(_qa);
     _qa.setFromAxisAngle(AZ, this.pelvisList * DEG);
     pel.quaternion.premultiply(_qa);
+    // orientación global del cuerpo (tumbado, cuadrupedia…)
+    this.root.rotation.set(this.body.rx * DEG, this.body.ry * DEG, this.body.rz * DEG, 'YXZ');
+    this.root.position.set(this.body.x, this.body.y, this.body.z);
     for (const side of ['L', 'R']) {
-      this.bones['femur' + side].quaternion.setFromAxisAngle(AX, -this.hipFlex[side] * DEG);
+      const sg = side === 'L' ? 1 : -1;
+      const fem = this.bones['femur' + side];
+      // flexión (X), abducción (Z: hacia afuera), rotación (Y)
+      fem.quaternion.setFromAxisAngle(AX, -this.hipFlex[side] * DEG);
+      _qa.setFromAxisAngle(AZ, sg * this.hip[side].abd * DEG); fem.quaternion.premultiply(_qa);
+      _qa.setFromAxisAngle(AY, sg * this.hip[side].rot * DEG); fem.quaternion.premultiply(_qa);
+      this.bones['tibia' + side].quaternion.setFromAxisAngle(AX, this.knee[side] * DEG);
+      this.bones['foot' + side].quaternion.setFromAxisAngle(AX, -this.ankle[side] * DEG);
+      const hum = this.bones['humerus' + side];
+      hum.quaternion.setFromAxisAngle(AX, -this.shoulder[side].flex * DEG);
+      _qa.setFromAxisAngle(AZ, sg * this.shoulder[side].abd * DEG); hum.quaternion.premultiply(_qa);
+      this.bones['forearm' + side].quaternion.setFromAxisAngle(AX, -this.elbow[side] * DEG);
     }
     for (const seg of SEGMENTS) {
       const j = this.joints[seg.id];

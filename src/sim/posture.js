@@ -112,8 +112,10 @@ export class PostureController {
     // ---- Lateral shift: el tronco se desplaza sobre la pelvis manteniéndose vertical ----
     if (s.shift) {
       const sh = s.shift;
-      const lower = { 'L5-S1': 3, 'L4-L5': 4.5, 'L3-L4': 7 };
-      const upper = { 'L2-L3': -5, 'L1-L2': -4.5, 'T12-L1': -3, 'T11-T12': -1.5, 'T10-T11': -0.5 };
+      // inclinación baja (dentro del rango de Pearcy) y compensación repartida hasta T9 para mantener
+      // el tórax vertical: el resultado es una traslación del tórax de ~4 cm sobre la pelvis
+      const lower = { 'L5-S1': 4, 'L4-L5': 6, 'L3-L4': 7.5 };
+      const upper = { 'L2-L3': -4, 'L1-L2': -4, 'T12-L1': -3.5, 'T11-T12': -2.5, 'T10-T11': -2, 'T9-T10': -1.5 };
       for (const [id, v] of Object.entries(lower)) out[id].lat += v * sh;
       for (const [id, v] of Object.entries(upper)) out[id].lat += v * sh;
       // rotación acoplada leve y pérdida de lordosis (cifosis antiálgica)
@@ -163,11 +165,18 @@ export class PostureController {
     R.pelvisList = pelvisList;
     R.hipFlex.L = hip + pelvisTilt * 0; // fémures: sólo cambian al sentarse (los pies quedan en el suelo de pie)
     R.hipFlex.R = hip;
+    // extremidades y orientación global por defecto (los ejercicios las sobrescriben)
+    Object.assign(R.body, { rx: 0, ry: 0, rz: 0, x: 0, y: 0, z: 0 });
+    R.knee.L = R.knee.R = 90 * s.sit;
+    R.ankle.L = R.ankle.R = 0;
+    for (const sd of ['L', 'R']) { R.hip[sd].abd = 0; R.hip[sd].rot = 0; R.shoulder[sd].flex = 0; R.shoulder[sd].abd = 0; R.elbow[sd] = 0; }
+    if (this.override) this.override.pre(R, out);
     for (const seg of SEGMENTS) Object.assign(R.segmentState[seg.id], out[seg.id]);
     R.applyPose();
+    if (this.override) this.override.post(R);
 
     // Compensación de la mirada: mantener la cabeza nivelada repartiendo en la columna cervical
-    if (s.gaze > 0 && !(f > 0.25 && reg === 'all')) {
+    if (s.gaze > 0 && !this.override && !(f > 0.25 && reg === 'all')) {
       const head = new THREE.Quaternion();
       R.bones.skull.getWorldQuaternion(head);
       const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(head);

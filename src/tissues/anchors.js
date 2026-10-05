@@ -66,7 +66,7 @@ export class AnchorResolver {
 export function mirrorSpec(spec) {
   const swapKey = (s) => {
     let [mesh, key] = s.split('.');
-    mesh = mesh.replace(/^(rib|scapula|clavicle|humerus|femur)L/, '$1§').replace(/^(rib|scapula|clavicle|humerus|femur)R/, '$1L').replace('§', 'R');
+    mesh = mesh.replace(/^(rib|scapula|clavicle|humerus|femur|tibia|foot|forearm|hand)L/, '$1§').replace(/^(rib|scapula|clavicle|humerus|femur|tibia|foot|forearm|hand)R/, '$1L').replace('§', 'R');
     if (key) key = key.replace(/L$/, '§').replace(/R$/, 'L').replace('§', 'R');
     return key ? mesh + '.' + key : mesh;
   };
@@ -78,7 +78,7 @@ export function mirrorSpec(spec) {
   if (o.offset) o.offset = [-o.offset[0], o.offset[1], o.offset[2]];
   if (o.lerp) o.lerp = [mirrorSpec(o.lerp[0]), mirrorSpec(o.lerp[1]), o.lerp[2]];
   if (o.via) o.via = [mirrorSpec(o.via[0]), mirrorSpec(o.via[1]), o.via[2]];
-  if (o.bone) o.bone = o.bone.replace(/^(shoulder|femur)L$/, '$1§').replace(/^(shoulder|femur)R$/, '$1L').replace('§', 'R');
+  if (o.bone) o.bone = o.bone.replace(/^(shoulder|femur|tibia|foot|humerus|forearm)L$/, '$1§').replace(/^(shoulder|femur|tibia|foot|humerus|forearm)R$/, '$1L').replace('§', 'R');
   if (o.n) o.n = [-o.n[0], o.n[1], o.n[2]];
   return o;
 }

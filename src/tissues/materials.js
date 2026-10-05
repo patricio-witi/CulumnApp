@@ -80,13 +80,21 @@ export function tissueMaterial(kind, opts = {}) {
         uniform sampler2D uStrandTex;
         uniform float uStrandMax;
         varying vec4 vState;
+        varying vec4 vState2;
+        varying float vArc;
         varying vec3 vWPos;`)
       .replace('#include <color_vertex>', `#include <color_vertex>
-        vState = texture2D(uStrandTex, vec2((sid + 0.5) / uStrandMax, 0.5));`)
+        vState = texture2D(uStrandTex, vec2((sid + 0.5) / uStrandMax, 0.25));
+        vState2 = texture2D(uStrandTex, vec2((sid + 0.5) / uStrandMax, 0.75));
+        vArc = uv.x;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        transformed += normal * vState2.y * 1.8;`)
       .replace('#include <project_vertex>', '#include <project_vertex>\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec4 vState;
+        varying vec4 vState2;
+        varying float vArc;
         varying vec3 vWPos;
         uniform float uMode;
         uniform float uTime;
@@ -122,6 +130,14 @@ export function tissueMaterial(kind, opts = {}) {
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         totalEmissiveRadiance += uHighlight + vState.z * vec3(0.32, 0.22, 0.04);
+        {
+          // pulsos de dolor que ascienden hacia la médula, edema y defensa muscular
+          float ph = vArc * 18.0 * 0.07 + uTime * 9.0;
+          float pulse = pow(max(0.0, sin(ph)), 10.0);
+          totalEmissiveRadiance += vec3(1.0, 0.8, 0.3) * pulse * vState2.x * 1.8;
+          totalEmissiveRadiance += vec3(0.5, 0.05, 0.12) * vState2.y * (0.6 + 0.4 * sin(uTime * 2.2));
+          totalEmissiveRadiance += vec3(0.42, 0.04, 0.02) * vState2.z * (0.65 + 0.35 * sin(uTime * 5.0 + vArc * 2.0));
+        }
         ${kind === 'nerve' ? 'totalEmissiveRadiance += vec3(0.6, 0.04, 0.02) * clamp(vState.w, 0.0, 1.0) * (0.6 + 0.4 * sin(uTime * 5.0));' : ''}
         ${kind === 'muscle' ? 'if (uMode > 1.5) totalEmissiveRadiance += vec3(0.35, 0.08, 0.02) * smoothstep(0.3, 1.0, vState.y);' : ''}`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>

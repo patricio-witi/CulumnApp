@@ -2,6 +2,8 @@
 import { U, SU, SSUB, SI, smax, sphere, ellipsoid, capsule, limb, chain, roundBox, plate, halfSpace, roughen, add, sub, mul, norm, dot, cross, len, lerp3 } from '../sdf.mjs';
 import { Landmarks, mx, frameX } from './common.mjs';
 
+export const ELBOW = [197, 222, -20];
+export const WRIST = [204, -18, -12];
 export const SH = {
   SA: [73, 549, -63],
   spineRoot: [70, 524, -67],
@@ -77,19 +79,29 @@ function humerus() {
   const gTub = ellipsoid([195, 508, -10], [8, 13, 11]);
   const lTub = ellipsoid([184, 503, 5], [6, 9, 6]);
   const shaftTop = [188, 488, -10];
-  const shaftBot = [191, 355, -20];
-  const shaft = limb(shaftTop, shaftBot, [12, 12.5], [10, 10.5], [0, 0, 1]);
+  const shaftBot = [195, 262, -20];
+  const E = ELBOW;
+  const shaft = limb(shaftTop, shaftBot, [12, 12.5], [11, 9.5], [0, 0, 1]);
   const delt = ellipsoid([199, 420, -14], [4, 14, 5]);
+  // extremo distal: epicóndilos, tróclea y cóndilo
+  const distal = SU(4,
+    ellipsoid(add(E, [0, 12, 0]), [26, 14, 11]),
+    sphere(add(E, [-28, 14, -2]), 7.5),
+    sphere(add(E, [26, 13, 0]), 6.5),
+    ellipsoid(add(E, [-8, 0, 0]), [12, 10, 11]),
+    sphere(add(E, [12, 1, 2]), 9.5),
+  );
   let f = SU(6, head, ellipsoid(neckC, [17, 17, 17]));
   f = SU(4, f, gTub, lTub);
   f = SU(8, f, shaft);
   f = SU(3, f, delt);
+  f = SU(7, f, distal);
   f = SSUB(1.2, f, capsule([189, 518, 3], [190, 470, -1], 3.4));
-  // corte limpio distal (pieza proximal)
-  f = smaxF(f, halfSpace([0, 362, 0], [0, -1, 0]), 2);
+  f = SSUB(2, f, ellipsoid(add(E, [0, 16, -12]), [9, 10, 6])); // fosa olecraneana
   const cart = (x, y, z) => smax(Math.hypot(x - H[0], y - H[1], z - H[2]) - 23.6, -dot(norm([-0.9, 0.25, -0.35]), [x - H[0], y - H[1], z - H[2]]) - 4, 1);
   L.set('head', H); L.set('groove', [190, 492, -2]); L.set('crestGT', [196, 480, -6]); L.set('deltoid', [199, 420, -14]);
   L.set('shaftTop', shaftTop); L.set('shaftBot', [191, 365, -20]); L.set('lesserTub', [184, 500, 5]);
+  L.set('elbow', E); L.set('medEpi', add(E, [-28, 14, -2])); L.set('latEpi', add(E, [26, 13, 0]));
   return { f, cart, L };
 }
 function smaxF(a, b, k) { return (x, y, z) => smax(a(x, y, z), b(x, y, z), k); }
@@ -102,7 +114,7 @@ export function buildShoulder(part, side) {
   const cart = s > 0 ? r.cart : (x, y, z) => r.cart(-x, y, z);
   const lm = {};
   for (const [k, p] of Object.entries(r.L.pts)) lm[k] = s > 0 ? p : mx(p);
-  const bb = part === 'scapula' ? [[55, 425, -95], [200, 570, 25]] : part === 'clavicle' ? [[10, 530, -30], [190, 570, 55]] : [[150, 350, -45], [215, 545, 20]];
+  const bb = part === 'scapula' ? [[55, 425, -95], [200, 570, 25]] : part === 'clavicle' ? [[10, 530, -30], [190, 570, 55]] : [[150, 196, -45], [232, 545, 20]];
   const bmin = s > 0 ? bb[0] : [-bb[1][0], bb[0][1], bb[0][2]];
   const bmax = s > 0 ? bb[1] : [-bb[0][0], bb[1][1], bb[1][2]];
   return { sdf: roughen(f, 0.1, 0.35), cartilage: cart, landmarks: lm, bmin, bmax };

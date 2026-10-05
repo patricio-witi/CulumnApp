@@ -114,13 +114,14 @@ export function boneMaterial(opts = {}) {
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += uHighlight;')
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
         if (!gl_FrontFacing) {
-          float n = vnoise(vWPos * 0.9) * 0.6 + vnoise(vWPos * 2.3) * 0.4;
-          float trab = smoothstep(0.35, 0.65, n);
-          vec3 cap = mix(uCapColor * 0.55, uCapColor * 1.08, trab);
-          gl_FragColor = vec4(cap, 1.0);
+          // hueso esponjoso cortado: trabéculas claras y espacios medulares rojizos (valores ya en sRGB)
+          float n = vnoise(vWPos * 1.5) * 0.55 + vnoise(vWPos * 3.4) * 0.45;
+          float trab = smoothstep(0.38, 0.6, n);
+          vec3 cap = mix(vec3(0.72, 0.45, 0.38), vec3(0.95, 0.89, 0.78), trab);
+          gl_FragColor = vec4(cap, gl_FragColor.a);
         }`);
   };
-  m.customProgramCacheKey = () => 'bone-v1';
+  m.customProgramCacheKey = () => 'bone-v2';
   return m;
 }
 
@@ -128,6 +129,8 @@ const NAMES = {
   sacrum: 'Sacro', coccyx: 'Cóccix', pelvis: 'Coxales (ilion, isquion y pubis)', skull: 'Cráneo', sternum: 'Esternón',
   femurL: 'Fémur izquierdo', femurR: 'Fémur derecho', scapulaL: 'Escápula izquierda', scapulaR: 'Escápula derecha',
   clavicleL: 'Clavícula izquierda', clavicleR: 'Clavícula derecha', humerusL: 'Húmero izquierdo', humerusR: 'Húmero derecho',
+  forearmL: 'Radio y cúbito izquierdos', forearmR: 'Radio y cúbito derechos', handL: 'Mano izquierda', handR: 'Mano derecha',
+  tibiaL: 'Tibia y peroné izquierdos', tibiaR: 'Tibia y peroné derechos', footL: 'Pie izquierdo', footR: 'Pie derecho',
 };
 export function boneLabel(name) {
   if (NAMES[name]) return NAMES[name];
@@ -145,8 +148,10 @@ export function rigBoneFor(rec) {
     if (rec.name === 'pelvis') return 'pelvis';
     if (rec.name.startsWith('femur')) return rec.name;
     if (rec.name === 'sternum') return 'sternum';
-    if (/(scapula|clavicle|humerus)L/.test(rec.name)) return 'shoulderL';
-    if (/(scapula|clavicle|humerus)R/.test(rec.name)) return 'shoulderR';
+    const m = /^(humerus|forearm|hand|tibia|foot)([LR])$/.exec(rec.name);
+    if (m) return (m[1] === 'hand' ? 'forearm' : m[1]) + m[2];
+    if (/(scapula|clavicle)L/.test(rec.name)) return 'shoulderL';
+    if (/(scapula|clavicle)R/.test(rec.name)) return 'shoulderR';
   }
   if (rec.name === 'sacrum' || rec.name === 'coccyx') return 'S1';
   if (rec.name.startsWith('rib')) return rec.frame; // T1..T12

@@ -8,6 +8,7 @@ import { buildPelvis, buildFemur } from './models/pelvis.mjs';
 import { buildRibs, buildSternum } from './models/thorax.mjs';
 import { buildSkull } from './models/skull.mjs';
 import { buildShoulder } from './models/shoulder.mjs';
+import { buildLimb } from './models/limbs.mjs';
 import { VERTEBRAE, computeRestPose, frameToWorld } from '../src/anatomy/spine-data.js';
 
 const OUT_DIR = new URL('../docs/assets/', import.meta.url);
@@ -106,7 +107,11 @@ for (const side of [1, -1]) {
   }
   jobs.push({ name: `scapula${s}`, frame: 'world', group: 'shoulder', make: () => buildShoulder('scapula', side), voxel: 0.8, tris: 9000 });
   jobs.push({ name: `clavicle${s}`, frame: 'world', group: 'shoulder', make: () => buildShoulder('clavicle', side), voxel: 0.7, tris: 4000 });
-  jobs.push({ name: `humerus${s}`, frame: 'world', group: 'shoulder', make: () => buildShoulder('humerus', side), voxel: 0.9, tris: 8000 });
+  jobs.push({ name: `humerus${s}`, frame: 'world', group: 'arm', make: () => buildShoulder('humerus', side), voxel: 0.9, tris: 9000 });
+  jobs.push({ name: `forearm${s}`, frame: 'world', group: 'arm', make: () => buildLimb('forearm', side), voxel: 0.8, tris: 6000 });
+  jobs.push({ name: `hand${s}`, frame: 'world', group: 'arm', make: () => buildLimb('hand', side), voxel: 0.7, tris: 6000 });
+  jobs.push({ name: `tibia${s}`, frame: 'world', group: 'leg', make: () => buildLimb('tibia', side), voxel: 1.0, tris: 9000, aoStep: 2.5 });
+  jobs.push({ name: `foot${s}`, frame: 'world', group: 'leg', make: () => buildLimb('foot', side), voxel: 0.8, tris: 7000 });
 }
 
 // Cargar resultados previos para regenerar sólo lo filtrado

@@ -325,7 +325,14 @@ function hipMuscles() {
     const ins = A('femurL.gluteal', [8, 4, -4]);
     gmax.push({ pts: [org, V(org, ins, 0.45, 'pelvis', [18, 0, -30]), V(org, ins, 0.8, 'femurL', [8, 0, -22]), ins], r: [[9, 4], [14, 9], [13, 8], [6, 3]], tendon: [0.05, 0.15], up: [0, 0, -1], color: RED3, superficial: true });
   }
-  return { piri, gmed, gmax };
+  // Isquiotibiales: de la tuberosidad isquiática a la tibia (semitendinoso/semimembranoso) y al peroné (bíceps femoral)
+  const hams = [];
+  for (const [ins, off, lat] of [['tibiaL.medCond', [6, 0, 2], -1], ['tibiaL.medCond', [10, 8, 6], -1], ['tibiaL.fibHead', [-4, 6, 2], 1]]) {
+    const org = A('pelvis.ischialTubL', [lat * 4, -8, -4]);
+    const insP = A(ins, off);
+    hams.push({ pts: [org, A('femurL.asperaUp', [lat * 8, -30, -26]), A('femurL.asperaMid', [lat * 10, -60, -30]), A('femurL.popliteal', [lat * 18, 6, 4]), insP], r: [[4, 4], [9, 8], [9, 8], [6, 5], [3.5, 3]], tendon: [0.08, 0.2], up: [0, 0, -1], color: RED });
+  }
+  return { piri, gmed, gmax, hams };
 }
 
 function abdominals() {
@@ -405,6 +412,7 @@ export function muscleCatalog() {
     { id: 'piriformis', name: 'Piriforme', latin: 'm. piriformis', layer: 7, fas: hp.piri },
     { id: 'gmed', name: 'Glúteo medio', latin: 'm. gluteus medius', layer: 7, fas: hp.gmed },
     { id: 'gmax', name: 'Glúteo mayor', latin: 'm. gluteus maximus', layer: 7, fas: hp.gmax },
+    { id: 'hamstrings', name: 'Isquiotibiales', latin: 'mm. semitendinosus, semimembranosus, biceps femoris', layer: 7, fas: hp.hams },
     { id: 'rectus', name: 'Recto del abdomen', latin: 'm. rectus abdominis', layer: 6, fas: ab.rect },
     { id: 'eo', name: 'Oblicuo externo', latin: 'm. obliquus externus abdominis', layer: 6, fas: ab.eo },
     { id: 'io', name: 'Oblicuo interno', latin: 'm. obliquus internus abdominis', layer: 6, fas: ab.io },

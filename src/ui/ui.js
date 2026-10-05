@@ -5,6 +5,8 @@ import { anglesChart, pressureBullet, dermatomeSVG, statusFor } from './charts.j
 import { PFIRRMANN, HERNIA, ZONES } from '../tissues/discs.js';
 import { affectedRoot, WILKE } from '../sim/biomech.js';
 import { DEFAULT_STATE } from '../sim/posture.js';
+import { STRUCTURES, STAGES, stageText } from '../sim/episode.js';
+import { EXERCISES, PUBLISHED_COMPRESSION } from '../sim/exercises.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
@@ -23,6 +25,7 @@ const PRESETS = [
   { id: 'round', label: 'Levantar con espalda redonda', keys: [{ t: 2.4, state: { ...DEFAULT_STATE, flex: 0.75, hinge: 0, loadKg: 15 } }] },
   { id: 'hinge', label: 'Bisagra de cadera', keys: [{ t: 2.4, state: { ...DEFAULT_STATE, flex: 0.75, hinge: 1, loadKg: 15 } }] },
   { id: 'twist', label: 'Agacharse y girar', keys: [{ t: 2.4, state: { ...DEFAULT_STATE, flex: 0.55, rot: 0.7 } }] },
+  { id: 'badlift', label: 'Mala fuerza: 20 kg, flexión y giro', keys: [{ t: 1.4, state: { ...DEFAULT_STATE, flex: 0.4 } }, { t: 2.2, state: { ...DEFAULT_STATE, flex: 0.82, rot: 0.5, loadKg: 20 } }] },
   { id: 'sit', label: 'Sentado erguido', keys: [{ t: 2, state: { ...DEFAULT_STATE, sit: 1, slump: 0 } }] },
   { id: 'slump', label: 'Sentado encorvado', keys: [{ t: 2, state: { ...DEFAULT_STATE, sit: 1, slump: 1 } }] },
   { id: 'shiftR', label: 'Lateral shift der.', keys: [{ t: 2.4, state: { ...DEFAULT_STATE, shift: 0.9 } }] },
@@ -34,7 +37,7 @@ const PRESETS = [
 const VIEWS = [['postObl', 'Oblicua'], ['postFull', 'Posterior'], ['lateralMotion', 'Lateral'], ['antFull', 'Anterior'], ['lumbarPostObl', 'Lumbar'], ['l45Close', 'Disco L4-L5'], ['axialL45', 'Axial L4-L5'], ['neck', 'Cuello'], ['pelvis', 'Pelvis']];
 
 const LAYER_DEFS = [
-  { title: 'Huesos', rows: [['vertebrae', 'Vértebras', 'var(--bone)'], ['pelvis', 'Pelvis, sacro y cóccix', 'var(--bone)'], ['thorax', 'Costillas y esternón', 'var(--bone)'], ['skull', 'Cráneo', 'var(--bone)'], ['limbs', 'Fémur, escápula y húmero', 'var(--bone)']], opacity: 'bones' },
+  { title: 'Huesos', rows: [['vertebrae', 'Vértebras', 'var(--bone)'], ['pelvis', 'Pelvis, sacro y cóccix', 'var(--bone)'], ['thorax', 'Costillas y esternón', 'var(--bone)'], ['skull', 'Cráneo', 'var(--bone)'], ['limbs', 'Escápulas, clavículas y fémures', 'var(--bone)'], ['legs', 'Piernas y pies', 'var(--bone)'], ['arms', 'Brazos y manos', 'var(--bone)']], opacity: 'bones' },
   { title: 'Discos y ligamentos', rows: [['discs', 'Discos intervertebrales', 'var(--disc)'], ['ligaments', 'Ligamentos y cápsulas', 'var(--lig)']] },
   { title: 'Sistema nervioso', rows: [['neural', 'Médula y raíces', 'var(--nerve)'], ['dura', 'Saco dural', 'var(--disc)'], ['peripheral', 'Nervios periféricos', 'var(--nerve)']] },
   { title: 'Músculos', rows: [['muscle2', 'Profundos (multífido, rotadores)', 'var(--muscle)'], ['muscle3', 'Erectores, cuadrado lumbar, psoas', 'var(--muscle)'], ['muscle4', 'Intermedios (romboides, esplenios)', 'var(--muscle)'], ['muscle5', 'Superficiales (trapecio, dorsal ancho)', 'var(--muscle)'], ['muscle6', 'Pared abdominal', 'var(--muscle)'], ['muscle7', 'Cadera (glúteos, piriforme)', 'var(--muscle)']], opacity: 'muscles' },
@@ -76,7 +79,9 @@ export class UI {
   showTab(tab) {
     this.tab = tab;
     for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-    $('#side-title').textContent = { explore: 'Explorar', move: 'Movimiento', case: 'Mi columna', class: 'Clase' }[tab];
+    $('#side-title').textContent = { explore: 'Explorar', move: 'Movimiento', case: 'Mi columna', episode: 'Episodio', exercise: 'Ejercicios', class: 'Clase' }[tab];
+    if (tab !== 'episode' && this.app.episode.active) this.endEpisode();
+    if (tab !== 'exercise' && this.app.exercise?.active) { this.app.exercise.stop(); this.resetLayers(); this.setColor('anat'); this.app.view('postObl'); }
     $('#side').classList.remove('collapsed');
     $('#layers').classList.remove('open');
     if ($('#side-collapse')) $('#side-collapse').textContent = 'Ocultar';
@@ -86,6 +91,8 @@ export class UI {
     if (tab === 'explore') this.renderExplore();
     if (tab === 'move') this.renderMove();
     if (tab === 'case') this.renderCase();
+    if (tab === 'episode') this.renderEpisode();
+    if (tab === 'exercise') this.renderExercise();
     if (tab === 'class') this.renderClass();
     this.updateMetrics();
   }
@@ -122,6 +129,11 @@ export class UI {
         $('input', sl).addEventListener('input', (e) => { app.opacity[g.opacity] = +e.target.value; $(`#op-${g.opacity}-out`).textContent = Math.round(+e.target.value * 100) + ' %'; app.applyLayers(); });
         sec.append(sl);
       }
+      if (g.title === 'Músculos') {
+        const ex = h(`<div class="slider"><label for="explode">Separar capas musculares</label><output id="explode-out">0 %</output><input type="range" id="explode" min="0" max="1" step="0.01" value="0"><div class="ends"><span>Juntas</span><span>Separadas</span></div></div>`);
+        $('input', ex).addEventListener('input', (e) => { app.explode = +e.target.value; $('#explode-out').textContent = Math.round(app.explode * 100) + ' %'; app.applyExplode(); app.dirty = true; });
+        sec.append(ex);
+      }
       if (g.title === 'Discos y ligamentos') {
         const x = h(`<div class="layer-row"><span></span><label><input type="checkbox" id="ly-xray"> Ver núcleo (disco translúcido)</label><span></span></div>`);
         $('input', x).addEventListener('change', (e) => { app.discs.setXray(e.target.checked); app.applyLayers(); });
@@ -152,16 +164,18 @@ export class UI {
       <button data-c="anat" aria-pressed="true">Anatómico</button><button data-c="strain">Estiramiento</button><button data-c="activity">Actividad</button><button data-c="pressure">Presión discal</button></div></div>`);
     for (const b of col.querySelectorAll('button')) b.addEventListener('click', () => this.setColor(b.dataset.c));
     body.append(col);
-    $('#reset-layers').addEventListener('click', () => {
-      Object.assign(app.layerState, { vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true, discs: true, ligaments: true, neural: true, dura: true, peripheral: true, fascia: false, skin: false, muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false });
+    $('#reset-layers').addEventListener('click', () => this.resetLayers());
+    this.resetLayers = () => {
+      Object.assign(app.layerState, { vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true, arms: false, legs: true, discs: true, ligaments: true, neural: true, dura: true, peripheral: true, fascia: false, skin: false, muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false });
       app.opacity.bones = 1; app.opacity.muscles = 1;
       app.isolated = null;
       $('#dissect').value = 3; upd();
       app.discs.setXray(false); $('#ly-xray').checked = false;
       setClip('none');
+      app.explode = 0; app.applyExplode(); $('#explode').value = 0; $('#explode-out').textContent = '0 %';
       app.applyLayers();
       this.syncLayerChecks();
-    });
+    };
   }
 
   syncLayerChecks() {
@@ -361,7 +375,7 @@ export class UI {
     const g3 = h(`<div class="group" id="move-metrics">
       <h3>Qué está pasando</h3><div class="prose" id="narrative"></div>
       <div class="card"><div class="eyebrow">Ritmo lumbopélvico</div><dl class="kv" id="m-trunk"></dl></div>
-      <div class="card"><div class="eyebrow">Carga en el disco L4-L5 (modelo estático)</div><dl class="kv" id="m-load"></dl><div id="m-bullet"></div><div class="cite">Las marcas son mediciones in vivo de Wilke et al. (Spine 1999) en una sola persona; pasa el cursor sobre ellas. El modelo usa un brazo extensor de 5,5 cm y presión ≈ 1,5 × fuerza / área (Nachemson). Error esperable alto: úsalo para comparar posturas.</div></div>
+      <div class="card"><div class="eyebrow">Carga en el disco L4-L5 (modelo estático)</div><dl class="kv" id="m-load"></dl><div id="m-bullet"></div><div class="cite">Las marcas son mediciones in vivo de Wilke et al. (Spine 1999) en una sola persona; pasa el cursor sobre ellas. El modelo usa un brazo extensor de 5,5 cm y presión ≈ 1,5 × fuerza / área (Nachemson). Error esperable alto: úsalo para comparar posturas. Límites: 3400 N es el límite de acción de la guía NIOSH de 1981, mantenido en la ecuación revisada (Waters et al., Ergonomics 1993); la cizalla de 1000 N ocasional y 700 N repetida, de Gallagher y Marras (Clin Biomech 2012). La resistencia real de un segmento varía mucho: media 6,1 kN en hombres y 4,0 kN en mujeres, menor con la edad (Jäger, EXCLI J 2018).</div></div>
       <div class="card"><div class="eyebrow">Agujeros de conjunción (altura medida en el modelo)</div><dl class="kv" id="m-foramen"></dl><div class="cite">Referencia en cadáver: el área foraminal cae ~15 % en extensión y sube ~12 % en flexión (Inufusa et al., Spine 1996).</div></div>
       <div class="card"><div class="eyebrow">Raíces nerviosas: cambio de longitud del trayecto</div><dl class="kv" id="m-roots"></dl></div>
       <div class="card"><div class="eyebrow">Músculos con más actividad estimada</div><dl class="kv" id="m-muscles"></dl></div>
@@ -443,6 +457,240 @@ export class UI {
     this.syncLayerChecks();
     $('#dissect').value = 1; $('#dissect-out').textContent = 'Ligamentos y nervios';
     app.view('l45Lat');
+  }
+
+  // ---------------- Episodio ----------------
+  renderEpisode() {
+    const app = this.app, E = app.episode, c = E.cfg;
+    const S = STRUCTURES[c.structure];
+    const rad = S.kind === 'radicular';
+    const cfg = h(`<div class="group"><h3>Simulador de episodio</h3>
+      <div class="prose"><p>Elige qué estructura se lesiona y recorre el episodio paso a paso: la mala fuerza, la inflamación, cómo nace y viaja el dolor, por qué aparece el lateral shift y qué pasa al moverte.</p></div>
+      <div class="card">
+        <label class="eyebrow" for="ep-struct">Estructura afectada</label>
+        <select id="ep-struct">${Object.entries(STRUCTURES).map(([k, v]) => `<option value="${k}" ${k === c.structure ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
+        <div class="row"><span class="hint">Lado</span><div class="seg" id="ep-side"><button data-v="L" aria-pressed="${c.side === 'L'}">Izquierdo</button><button data-v="R" aria-pressed="${c.side === 'R'}">Derecho</button></div></div>
+        ${rad ? `<div class="row"><span class="hint">Hernia</span><div class="seg" id="ep-hern">${['protrusion', 'extrusion', 'sequestration'].map((k) => `<button data-v="${k}" aria-pressed="${c.hern === k}">${{ protrusion: 'Protrusión', extrusion: 'Extrusión', sequestration: 'Secuestro' }[k]}</button>`).join('')}</div></div>` : ''}
+        <div class="row"><span class="hint">Degeneración</span><div class="seg" id="ep-grade">${[3, 4, 5].map((g) => `<button data-v="${g}" aria-pressed="${c.grade === g}" title="${PFIRRMANN[g].label}">${['III', 'IV', 'V'][g - 3]}</button>`).join('')}</div></div>
+        <div class="row"><span class="hint">Shift</span><div class="seg" id="ep-dir"><button data-v="away" aria-pressed="${c.shiftDir === 'away'}" title="Lo más observado en series quirúrgicas">Alejándose (frecuente)</button><button data-v="toward" aria-pressed="${c.shiftDir === 'toward'}">Hacia la lesión</button></div></div>
+        <div class="row"><button class="btn" id="ep-start">${E.active ? 'Reiniciar desde el paso 1' : 'Iniciar episodio'}</button>${E.active ? '<button class="btn ghost" id="ep-stop">Terminar</button>' : ''}</div>
+        <div class="cite">“Inflamación en L4” puede ser el disco L4-L5, la raíz L4 o la faceta L4-L5: cada una duele distinto. Por eso aquí eliges la estructura.</div>
+      </div></div>`);
+    if (!E.active) this.side.append(cfg);
+    const reset = (patch) => { Object.assign(c, patch); if (E.active) E.goto(E.stage); this.showTab('episode'); };
+    $('#ep-struct', cfg).addEventListener('change', (e) => reset({ structure: e.target.value }));
+    for (const [id, key, num] of [['#ep-side', 'side'], ['#ep-hern', 'hern'], ['#ep-grade', 'grade', true], ['#ep-dir', 'shiftDir']]) {
+      const g = $(id, cfg);
+      if (g) for (const b of g.querySelectorAll('button')) b.addEventListener('click', () => reset({ [key]: num ? +b.dataset.v : b.dataset.v }));
+    }
+    $('#ep-start', cfg).addEventListener('click', () => this.startEpisode(0));
+    $('#ep-stop', cfg)?.addEventListener('click', () => { this.endEpisode(); this.showTab('episode'); });
+    if (!E.active) {
+      this.side.append(h(`<div class="card"><div class="eyebrow">Qué vas a ver</div><div class="prose"><ul>
+        <li>El disco cortado en cuadrante: láminas del anillo, núcleo, platillos y la fisura.</li>
+        <li>La hernia formándose durante un levantamiento con flexión y giro, con la carga comparada con los límites publicados.</li>
+        <li>La raíz hinchándose, la nube de mediadores inflamatorios y los pulsos de dolor hacia la médula.</li>
+        <li>En la piel: dolor radicular (franja roja en el dermatoma) frente a dolor somático referido (mancha naranja difusa).</li>
+        <li>Los músculos en defensa y el tronco desplazándose (lateral shift).</li></ul></div>
+        <div class="cite">Modelo didáctico. La geometría (cargas, forámenes, tensión de las raíces) sale del modelo; la intensidad del dolor es ilustrativa y no predice lo que sentirá una persona concreta.</div></div>`));
+      return;
+    }
+    const st = STAGES[E.stage];
+    const nav = h(`<div class="group">
+      <div class="lesson-nav"><span class="eyebrow">Paso ${E.stage + 1} de ${STAGES.length} · ${st.time}</span><div class="dots">${STAGES.map((x, j) => `<button aria-label="${x.title}" title="${x.title}" aria-current="${j === E.stage}" data-j="${j}"></button>`).join('')}</div></div>
+      <h2 class="lesson-title">${st.title}</h2>
+      <div class="prose" id="ep-text">${stageText(st.id, S, c, E.out)}</div>
+      <div class="row"><button class="btn ghost" id="ep-prev" ${E.stage === 0 ? 'disabled' : ''}>Anterior</button><button class="btn" id="ep-next" ${E.stage === STAGES.length - 1 ? 'disabled' : ''}>Siguiente</button><button class="chip" id="ep-replay">Repetir animación</button><button class="chip" id="ep-speak">Escuchar</button></div></div>`);
+    this.side.append(nav);
+    $('#ep-prev', nav).addEventListener('click', () => this.startEpisode(E.stage - 1));
+    $('#ep-next', nav).addEventListener('click', () => this.startEpisode(E.stage + 1));
+    $('#ep-replay', nav).addEventListener('click', () => this.startEpisode(E.stage));
+    for (const d of nav.querySelectorAll('.dots button')) d.addEventListener('click', () => this.startEpisode(+d.dataset.j));
+    this.bindSpeak($('#ep-speak', nav), () => st.title + '. ' + $('#ep-text').innerText);
+    if (st.id === 'moves' || st.id === 'shift' || st.id === 'pain') {
+      const mv = h(`<div class="card"><div class="eyebrow">Prueba un movimiento</div><div class="seg" id="ep-moves">
+        <button data-k="flex">Flexión</button><button data-k="ext">Extensión</button><button data-k="glide">Corregir el shift</button><button data-k="sit">Sentado encorvado</button><button data-k="neutral">Volver</button></div>
+        <div class="prose" id="ep-move-res" style="font-size:13px"></div></div>`);
+      for (const b of mv.querySelectorAll('button')) b.addEventListener('click', () => {
+        for (const x of mv.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+        E.testMove(b.dataset.k);
+      });
+      this.side.append(mv);
+    }
+    this.side.append(h(`<div class="card"><div class="eyebrow">Indicadores en vivo</div><div id="ep-bars"></div><dl class="kv" id="ep-kv"></dl>
+      <div class="cite">Dolor: indicador ilustrativo que combina compresión, inflamación y sensibilización. Carga: modelo estático de L4-L5 (error ±30–50 %). Límites: NIOSH 1981 / Waters 1993 (compresión) y Gallagher y Marras 2012 (cizalla).</div></div>`));
+    this.side.append(h(`<div class="card"><div class="eyebrow">Cómo leer el modelo</div><dl class="kv ep-legend">
+      <dt><i class="sw" style="background:#e0412a"></i>Franja roja con pulsos en la piel</dt><dd>radicular</dd>
+      <dt><i class="sw" style="background:#f08a3c"></i>Mancha naranja difusa</dt><dd>somático referido</dd>
+      <dt><i class="sw" style="background:#ffd84d"></i>Pulsos amarillos en el nervio</dt><dd>señal dolorosa</dd>
+      <dt><i class="sw" style="background:#ff5a1f;border-radius:50%"></i>Nube roja</dt><dd>mediadores</dd>
+      <dt><i class="sw" style="background:#b3352a"></i>Brillo rojo pulsante en músculo</dt><dd>defensa</dd></dl></div>`));
+    // con el episodio en marcha, la configuración va al final
+    $('h3', cfg).textContent = 'Cambiar la lesión';
+    $('.prose', cfg).remove();
+    this.side.append(cfg);
+  }
+
+  startEpisode(i) {
+    const app = this.app, E = app.episode;
+    if (!E.active) { E.savedPath = app.pathology; E.active = true; }
+    E.goto(i);
+    this.syncClip?.();
+    this.showTab('episode');
+  }
+
+  endEpisode() {
+    const app = this.app, E = app.episode;
+    E.stop();
+    app.animator.stop();
+    app.posture.set({ ...DEFAULT_STATE });
+    app.setPathology(E.savedPath || {});
+    this.setColor('anat');
+    this.resetLayers();
+    app.view('postObl');
+    app.dirty = true;
+  }
+
+  bindSpeak(btn, getText) {
+    if (!('speechSynthesis' in window)) { btn.hidden = true; return; }
+    btn.addEventListener('click', () => {
+      if (speechSynthesis.speaking) { speechSynthesis.cancel(); btn.textContent = 'Escuchar'; return; }
+      const u = new SpeechSynthesisUtterance(getText());
+      const v = speechSynthesis.getVoices().filter((x) => x.lang.startsWith('es'));
+      u.voice = v.find((x) => /CL|419|MX|US/.test(x.lang)) || v[0] || null;
+      u.lang = u.voice?.lang || 'es-ES';
+      u.rate = 0.98;
+      u.onend = () => { btn.textContent = 'Escuchar'; };
+      speechSynthesis.speak(u);
+      btn.textContent = 'Detener';
+    });
+  }
+
+  updateEpisode() {
+    const app = this.app, E = app.episode, o = E.out, m = app.biomech.metrics;
+    const bars = $('#ep-bars');
+    if (!bars) return;
+    const bar = (label, v, color, txt) => `<div class="mbar"><span>${label}</span><span class="track"><i style="width:${Math.round(Math.min(1, v) * 100)}%;background:${color}"></i></span><output>${txt}</output></div>`;
+    const reach = o.extent < 0.05 ? 'sin irradiación' : o.extent < 0.6 ? 'hasta el muslo' : o.extent < 0.8 ? 'hasta la rodilla' : o.extent < 0.93 ? 'hasta la pantorrilla' : 'hasta el pie';
+    bars.innerHTML = bar('Dolor radicular', o.radicular, 'var(--critical)', Math.round(o.radicular * 10) + '/10')
+      + bar('Dolor somático referido', o.somatic, 'var(--serious)', Math.round(o.somatic * 10) + '/10')
+      + bar('Irradiación', o.extent, 'var(--warning)', reach)
+      + bar('Compresión L4-L5 / 3400 N', m.comp / 3400, m.comp > 3400 ? 'var(--critical)' : 'var(--accent)', Math.round(m.comp) + ' N')
+      + bar('Cizalla / 1000 N', Math.abs(m.shear) / 1000, Math.abs(m.shear) > 1000 ? 'var(--critical)' : 'var(--accent)', Math.round(Math.abs(m.shear)) + ' N');
+    const S = E.S, c = E.cfg;
+    const kv = [];
+    if (S.root) kv.push(['Índice de compresión de ' + S.root + ' ' + (c.side === 'L' ? 'izq.' : 'der.'), Math.round(o.comp * 100) + ' %']);
+    const fk = S.seg + c.side;
+    if (m.foramen[fk] !== undefined) kv.push([`Foramen ${S.seg} del lado afectado`, `${f1(m.foramen[fk])} mm (${sgn(app.biomech.foramenChange(fk) * 100, 0)} %)`]);
+    const d = app.discs.byId[S.seg];
+    kv.push(['Núcleo de ' + S.seg, `${f1(Math.abs(d.state.nucleusShift.y))} mm ${d.state.nucleusShift.y < 0 ? 'hacia atrás' : 'hacia delante'}`]);
+    if (S.kind === 'facet') kv.push(['Carga facetaria (relativa)', Math.round(o.facetLoad * 100) + ' %']);
+    $('#ep-kv').innerHTML = kv.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+    const st = STAGES[E.stage];
+    if ((st.id === 'shift' || st.id === 'moves') && !app.animator.playing) {
+      const html = stageText(st.id, S, c, o);
+      if (html !== this._epHTML && $('#ep-text')) { $('#ep-text').innerHTML = html; this._epHTML = html; }
+    }
+    const res = $('#ep-move-res');
+    if (res && E.move && E.baseOut && !app.animator.playing) {
+      const b = E.baseOut;
+      const dE = o.extent - b.extent, dS = o.score - b.score;
+      const name = { flex: 'la flexión', ext: 'la extensión', glide: 'la corrección del shift', sit: 'estar sentado encorvado', neutral: 'volver a la postura de defensa' }[E.move];
+      let msg;
+      if (E.move === 'neutral') msg = 'Postura de defensa con el shift. Prueba otro movimiento.';
+      else if (dE > 0.04) msg = `<strong>Periferializa</strong>: con ${name} el dolor llega más lejos en la pierna (${reach}) y el indicador pasa de ${b.score} a ${o.score}/10. Es la señal de que ese movimiento irrita más la raíz.`;
+      else if (dE < -0.04 || dS < -0.5) msg = `<strong>Centraliza</strong>: con ${name} el dolor se retira hacia la zona lumbar (${reach}); el indicador pasa de ${b.score} a ${o.score}/10.`;
+      else msg = `Con ${name} el modelo apenas cambia (${b.score} → ${o.score}/10).`;
+      if (E.S.kind === 'facet' && E.move === 'ext') msg += ' En la faceta, la extensión aumenta la carga articular.';
+      res.innerHTML = `<p>${msg}</p>`;
+    }
+  }
+
+  // ---------------- Ejercicios ----------------
+  renderExercise() {
+    const app = this.app, X = app.exercise;
+    const cur = X.active ? X.ex : null;
+    const schools = [...new Set(EXERCISES.map((e) => e.school))];
+    const list = h(`<div class="group"><h3>Ejercicios animados</h3>
+      <div class="prose"><p>Elige un ejercicio: el modelo lo ejecuta en bucle y colorea los músculos según su actividad. Las cifras de EMG o de carga solo aparecen cuando pude verificarlas; el resto es cualitativo y lo indico.</p></div>
+      ${schools.map((sc) => `<div class="eyebrow">${{ McGill: 'Stuart McGill (Low Back Disorders, Back Mechanic)', McKenzie: 'Robin McKenzie (Treat Your Own Back; método MDT)', 'Estabilización y otros': 'Estabilización y fortalecimiento general', Neural: 'Movilización neural' }[sc] || sc}</div>
+        <div class="ex-list">${EXERCISES.filter((e) => e.school === sc).map((e) => `<button data-ex="${e.id}" aria-pressed="${cur?.id === e.id}"><span>${e.name}</span><small>${e.latin}</small></button>`).join('')}</div>`).join('')}</div>`);
+    for (const b of list.querySelectorAll('[data-ex]')) b.addEventListener('click', () => this.startExercise(b.dataset.ex));
+    if (!cur) {
+      this.side.append(list);
+      this.side.append(this.exerciseEvidence());
+      return;
+    }
+    const musc = cur.muscles.slice().sort((a, b) => b.lv - a.lv).map((m) => {
+      const it = app.muscles.find((x) => x.id === m.id);
+      const name = it ? it.name : m.id;
+      const lat = m.lat === 'same' ? (cur.id === 'sidebridge' ? ' (lado de apoyo)' : ' (lado de la pierna que trabaja)') : m.lat === 'opp' ? ' (lado del brazo que trabaja)' : '';
+      const verified = !m.src.startsWith('estimación');
+      return `<div class="mbar" title="${m.src.replace(/"/g, '&quot;')}"><span>${name}${lat}</span><span class="track"><i style="width:${Math.round(m.lv * 100)}%;background:${verified ? 'var(--critical)' : 'var(--serious)'}"></i></span><output>${verified ? Math.round(m.lv * 100) + ' %' : ['baja', 'moderada', 'alta'][m.lv < 0.3 ? 0 : m.lv < 0.5 ? 1 : 2]}</output></div>`;
+    }).join('');
+    const card = h(`<div class="card">
+      <div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="eyebrow">${cur.school}</div><h2 style="font-size:21px">${cur.name}</h2><div class="latin">${cur.latin}</div></div>
+      <button class="chip" id="ex-pause">${X.paused ? 'Reanudar' : 'Pausar'}</button></div>
+      <div class="prose"><p><strong>Objetivo.</strong> ${cur.goal}</p>
+      <p><strong>Cómo se hace</strong></p><ol style="margin:0 0 8px;padding-left:18px">${cur.how.map((x) => `<li>${x}</li>`).join('')}</ol>
+      <p><strong>Dosis.</strong> ${cur.dose}</p></div>
+      <div class="callout" style="border-left-color:var(--warning);background:color-mix(in srgb, var(--warning) 9%, transparent)"><strong>Precauciones.</strong> ${cur.caution}</div>
+      <div class="eyebrow">Músculos que trabaja</div><div class="musc">${musc}</div>
+      <div class="cite">Rojo con % = EMG publicado (% de la contracción voluntaria máxima, pasa el cursor para ver la fuente). Naranja = estimación cualitativa. Las barras no son comparables entre estudios.${cur.notModeled ? ' ' + cur.notModeled : ''}</div>
+      <div class="eyebrow">Carga sobre la columna</div><div class="prose" style="font-size:13px"><p>${cur.load}</p></div>
+      <div id="ex-comp"></div></div>`);
+    this.side.append(card);
+    $('#ex-pause', card).addEventListener('click', (e) => { X.togglePause(); e.target.textContent = X.paused ? 'Reanudar' : 'Pausar'; });
+    $('#ex-comp', card).innerHTML = this.compressionChart(cur.id);
+    // el ejercicio elegido arriba; la lista y la evidencia debajo
+    $('h3', list).textContent = 'Otros ejercicios';
+    $('.prose', list).remove();
+    this.side.append(list);
+    this.side.append(this.exerciseEvidence());
+  }
+
+  compressionChart(id) {
+    const max = 6500, W = 360, rowH = 22, left = 150, top = 8;
+    const hiName = { curlup: 'Curl-up', birddog: 'Perro de caza (brazo y pierna)' }[id];
+    const rows = PUBLISHED_COMPRESSION.map(([n, v], i) => {
+      const w = ((W - left - 46) * v) / max, y = top + i * rowH, hi = n === hiName;
+      return `<text x="${left - 6}" y="${y + 12}" text-anchor="end" class="${hi ? 'title' : 'lvl'}">${n}</text><rect x="${left}" y="${y + 3}" width="${w}" height="12" rx="3" fill="${v > 3400 ? 'var(--critical)' : 'var(--accent)'}" opacity="${hi ? 1 : 0.55}"></rect><text x="${left + w + 4}" y="${y + 12}">${v.toLocaleString('es')} N</text>`;
+    }).join('');
+    const xN = left + ((W - left - 46) * 3400) / max, H = top + PUBLISHED_COMPRESSION.length * rowH + 16;
+    return `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="Compresión L4-L5 publicada por ejercicio">${rows}<line x1="${xN}" x2="${xN}" y1="${top}" y2="${H - 14}" stroke="var(--critical)" stroke-dasharray="3 3"></line><text x="${xN}" y="${H - 3}" text-anchor="middle">NIOSH 3400 N</text></svg>
+      <div class="cite">Compresión estimada en L4-L5 con un modelo de laboratorio en pocos adultos jóvenes sanos (McGill 1998; Axler y McGill 1997). Cifras tomadas de fuentes secundarias: confírmalas antes de citarlas.</div>`;
+  }
+
+  exerciseEvidence() {
+    return h(`<div class="card"><div class="eyebrow">Qué dice la evidencia</div><div class="prose" style="font-size:13px"><ul>
+      <li><strong>El ejercicio ayuda, con efecto moderado.</strong> En dolor lumbar crónico, frente a no tratar o placebo, redujo el dolor 15 puntos sobre 100 (certeza moderada); la mejora de la función fue menor que el umbral de importancia clínica (Hayden et al., Cochrane 2021; 249 ensayos).</li>
+      <li><strong>Ningún tipo ha demostrado ser claramente superior.</strong> La revisión Cochrane no recomienda uno; un metaanálisis en red asociado ordenó mejor a Pilates, McKenzie y restauración funcional, con certeza baja.</li>
+      <li><strong>McKenzie (MDT).</strong> En dolor crónico fue algo mejor que otras rehabilitaciones (efecto pequeño a moderado); en dolor agudo no fue mejor (Lam et al., JOSPT 2018; 17 ensayos).</li>
+      <li><strong>Ciática.</strong> El ejercicio estructurado no fue mejor que el consejo de mantenerse activo (Fernandez et al., Spine 2015).</li>
+      <li><strong>Por qué McGill entrena patrones y no músculos aislados.</strong> Ningún músculo dominó la estabilidad de la columna y su papel cambió según la tarea (Kavcic et al., Spine 2004). La contracción global del abdomen (“bracing”) aumentó la estabilidad un 32 % con un 15 % más de compresión; el transverso aportó muy poco (Grenier y McGill, Arch Phys Med Rehabil 2007; 8 hombres sanos).</li>
+      <li><strong>Hundir el ombligo (“hollowing”).</strong> Nació de que el transverso se activó con retraso en personas con dolor lumbar (Hodges y Richardson, Spine 1996; 15 frente a 15). Que entrenarlo de forma aislada sea mejor que otros ejercicios no está demostrado.</li></ul></div>
+      <div class="callout"><strong>En tu caso</strong> (discopatía severa y lateral shift recurrente): estos estudios no se hicieron con personas como tú en particular. Usa la respuesta del síntoma como guía (si el dolor baja hacia la pierna, para) y ajusta el programa con un fisioterapeuta. Durante un episodio con shift, los textos de McKenzie proponen corregir el shift antes de extender.</div></div>`);
+  }
+
+  startExercise(id) {
+    const app = this.app, X = app.exercise;
+    if (app.episode.active) this.endEpisode();
+    app.explode = 0; app.applyExplode();
+    const exs = $('#explode'); if (exs) { exs.value = 0; $('#explode-out').textContent = '0 %'; }
+    X.start(id);
+    const ex = X.ex;
+    const layers = new Set(ex.muscles.map((m) => app.muscles.find((x) => x.id === m.id)?.layer).filter(Boolean));
+    Object.assign(app.layerState, { skin: true, fascia: false, arms: true, legs: true, ligaments: false, neural: ex.id === 'slider', peripheral: ex.id === 'slider', dura: false, discs: true, pelvis: true, thorax: true, skull: true, limbs: true, vertebrae: true });
+    for (let l = 2; l <= 7; l++) app.layerState['muscle' + l] = l <= 3 || layers.has(l);
+    app.isolated = null;
+    app.applyLayers();
+    this.syncLayerChecks();
+    this.setColor('activity');
+    app.setClip({ mode: 'none' }); this.syncClip?.();
+    X.computeBounds();
+    app.dirty = true;
+    app.view('exercise');
+    this.showTab('exercise');
   }
 
   // ---------------- Clase ----------------
@@ -533,7 +781,7 @@ export class UI {
       const st = app.posture.state;
       $('#m-trunk').innerHTML = st.sit ? `<dt>Flexión de cadera</dt><dd>${f1(app.rig.hipFlex.L)}°</dd><dt>Inclinación de la pelvis</dt><dd>${sgn(info.hip)}° ${info.hip < 0 ? '(retroversión)' : ''}</dd><dt>Columna lumbar (respecto de la lordosis de pie)</dt><dd>${sgn(info.lumbarFlex)}°</dd>`
         : `<dt>Tronco respecto de la vertical</dt><dd>${sgn(info.trunk)}°</dd><dt>Aporte lumbar</dt><dd>${sgn(info.lumbarFlex)}°</dd><dt>Aporte de cadera (pelvis)</dt><dd>${sgn(info.hip)}°</dd><dt>Torácica / cervical</dt><dd>${sgn(info.thoracicFlex)}° / ${sgn(info.cervicalFlex)}°</dd><dt>Rotación lumbar / torácica</dt><dd>${sgn(info.lumbarRot)}° / ${sgn(info.thoracicRot)}°</dd>`;
-      $('#m-load').innerHTML = `<dt>Compresión estimada</dt><dd>${Math.round(m.comp)} N (≈ ${f1(m.comp / 9.81, 0)} kgf)</dd><dt>Momento flexor del tronco</dt><dd>${f1(m.M)} N·m</dd><dt>Fuerza de los extensores</dt><dd>${Math.round(m.Fm)} N</dd><dt>Cizalla anterior</dt><dd>${Math.round(m.shear)} N</dd>${app.frZone > 0.3 ? '<dt>Relajación-flexión</dt><dd>activa</dd>' : ''}`;
+      $('#m-load').innerHTML = `<dt>Compresión estimada</dt><dd>${Math.round(m.comp)} N (≈ ${f1(m.comp / 9.81, 0)} kgf)</dd><dt>Momento flexor del tronco</dt><dd>${f1(m.M)} N·m</dd><dt>Fuerza de los extensores</dt><dd>${Math.round(m.Fm)} N</dd><dt>Cizalla anterior</dt><dd>${Math.round(m.shear)} N</dd><dt>Respecto del límite de acción NIOSH (3400 N)</dt><dd style="color:${m.comp > 3400 ? 'var(--critical)' : 'inherit'}">${Math.round((m.comp / 3400) * 100)} %</dd><dt>Respecto del límite de cizalla ocasional (1000 N)</dt><dd style="color:${Math.abs(m.shear) > 1000 ? 'var(--critical)' : 'inherit'}">${Math.round((Math.abs(m.shear) / 1000) * 100)} %</dd>${app.frZone > 0.3 ? '<dt>Relajación-flexión</dt><dd>activa</dd>' : ''}`;
       pressureBullet($('#m-bullet'), m.mpa);
       const fr = (k) => `${f1(m.foramen[k])} mm (${sgn(app.biomech.foramenChange(k) * 100, 0)} %)`;
       $('#m-foramen').innerHTML = ['L3-L4', 'L4-L5', 'L5-S1'].map((s) => `<dt>${s} izq. / der.</dt><dd>${fr(s + 'L')} · ${fr(s + 'R')}</dd>`).join('');
@@ -544,6 +792,7 @@ export class UI {
       anglesChart($('#m-angles'), app.rig.segmentState, this.tooltip);
       $('#narrative').innerHTML = this.narrative(info, m);
     }
+    if (this.tab === 'episode') this.updateEpisode();
     if (this.tab === 'case' && $('#case-roots')) {
       const comp = Object.values(app.compression);
       const el = $('#case-roots');
@@ -582,7 +831,7 @@ export class UI {
     if (Math.abs(st.lat) > 0.05) { const r = st.lat > 0; out.push(`<p><strong>Inclinación a la ${r ? 'derecha' : 'izquierda'}.</strong> El cuadrado lumbar y los erectores ${r ? 'izquierdos' : 'derechos'} se alargan y frenan; los discos se abomban en el lado ${r ? 'derecho' : 'izquierdo'} y los forámenes de ese lado se estrechan.</p>`); }
     if (Math.abs(st.rot) > 0.05) { const r = st.rot > 0; out.push(`<p><strong>Rotación a la ${r ? 'derecha' : 'izquierda'}.</strong> La columna lumbar solo aporta ${f1(Math.abs(info.lumbarRot))}°; el tórax ${f1(Math.abs(info.thoracicRot))}°. Trabajan el oblicuo externo ${r ? 'izquierdo' : 'derecho'} y el interno ${r ? 'derecho' : 'izquierdo'}.</p>`); }
     if (Math.abs(st.shift) > 0.05) out.push(`<p><strong>Lateral shift ${st.shift > 0 ? 'derecho' : 'izquierdo'}.</strong> Los segmentos L3-S1 se inclinan hacia ${st.shift > 0 ? 'la derecha' : 'la izquierda'} y los superiores compensan para mantener el tórax vertical. El lado ${st.shift > 0 ? 'izquierdo' : 'derecho'} queda convexo: sus forámenes se abren.</p>`);
-    if (st.loadKg > 0) out.push(`<p>Con ${Math.round(st.loadKg)} kg en las manos la compresión estimada en L4-L5 sube a ${Math.round(m.comp)} N.</p>`);
+    if (st.loadKg > 0) out.push(`<p>Con ${Math.round(st.loadKg)} kg en las manos la compresión estimada en L4-L5 sube a ${Math.round(m.comp)} N${m.comp > 3400 ? ', <strong>por encima del límite de acción de NIOSH</strong>' : ''}.${st.flex > 0.5 && Math.abs(st.rot) > 0.25 ? ' Flexión con giro bajo carga: en especímenes, sumar rotación a la flexión repetida deslaminó el anillo y facilitó las fisuras radiales (Marshall y McGill 2010; Veres et al. 2010). Con <strong>compresión pura</strong>, en cambio, lo que suele fallar primero es el platillo vertebral.' : ''}</p>`);
     if (!out.length) out.push(`<p><strong>Postura neutra de pie.</strong> Compresión estimada en L4-L5 de ${Math.round(m.comp)} N (${f1(m.mpa, 2)} MPa; referencia medida: 0,50 MPa). Elige un gesto o mueve los controles.</p>`);
     return out.join('');
   }
@@ -597,6 +846,8 @@ const ABOUT = `
 <li>Modelo estático simplificado: compresión en L4-L5 con masas segmentarias de Dempster/Winter, brazo extensor de 5,5 cm y presión ≈ 1,5 × fuerza / área. Sirve para comparar posturas; puede errar en ±30–50 %.</li>
 <li>Cualitativo: la actividad muscular estimada sigue patrones EMG clásicos (relajación-flexión según Kippers y Parker 1984; oblicuos cruzados en la rotación), no una simulación muscular.</li>
 <li>Ilustrativo: el índice de compresión radicular. No mide tu raíz.</li>
+<li>Didáctico (pestaña Episodio): la inflamación, la intensidad del dolor y su extensión por la pierna combinan la geometría del modelo con reglas inspiradas en la literatura. Sirven para entender mecanismos, no para predecir síntomas.</li>
+<li>Ejercicios: las poses se construyen con ángulos articulares aproximados; la actividad muscular es EMG publicado solo donde se indica la fuente y cualitativa en el resto. Fuera de la postura de pie, el modelo de carga no es válido y solo se muestran cifras publicadas.</li>
 </ul>
 <p><strong>Límites.</strong> Es una anatomía media: tu columna puede diferir en tamaño, curvas y variantes. La forma de los huesos está simplificada. No sustituye una resonancia, ni la exploración ni el criterio de tu equipo tratante.</p>
 <p><strong>Referencias principales</strong></p>
@@ -614,4 +865,24 @@ const ABOUT = `
 <li>Matsui H et al. Sciatic scoliosis in lumbar disc herniation. Spine 1998;23:338–42. Suk KS et al. Spine 2001;26:667–71. Porter RW, Miller CG. Back pain and trunk list. Spine 1986;11:596–600.</li>
 <li>Macintosh JE, Bogduk N et al. The morphology of the human lumbar multifidus. Clin Biomech 1986;1:196–204.</li>
 <li>Deyo RA, Mirza SK. Herniated lumbar intervertebral disk. N Engl J Med 2016;374:1763–72.</li>
-</ul>`;
+</ul>
+<p><strong>Episodio: dolor, inflamación y mecánica de la lesión</strong></p>
+<ul class="cite">
+<li>Yoshizawa H et al. J Pathol 1980. Bogduk N, Tynan W, Wilson AS. The nerve supply to the human lumbar intervertebral discs. J Anat 1981.</li>
+<li>Freemont AJ et al. Nerve ingrowth into diseased intervertebral disc in chronic back pain. Lancet 1997;350:178–81.</li>
+<li>Olmarker K, Rydevik B, Nordborg C. Autologous nucleus pulposus induces neurophysiologic and histologic changes in porcine cauda equina nerve roots. Spine 1993. Olmarker K, Larsson K. Spine 1998 (TNF-α).</li>
+<li>Saal JS et al. High levels of inflammatory phospholipase A2 activity in lumbar disc herniations. Spine 1990.</li>
+<li>Howe JF, Loeser JD, Calvin WH. Pain 1977. Smyth MJ, Wright V. Sciatica and the intervertebral disc. J Bone Joint Surg Am 1958.</li>
+<li>Bogduk N. On the definitions and physiology of back pain, referred pain, and radicular pain. Pain 2009;147:17–9.</li>
+<li>Adams MA, Hutton WC. Prolapsed intervertebral disc: a hyperflexion injury. Spine 1982. Callaghan JP, McGill SM. Clin Biomech 2001. Marshall LW, McGill SM. Clin Biomech 2010. Veres SP, Robertson PA, Broom ND. Eur Spine J 2010.</li>
+<li>NIOSH. Work Practices Guide for Manual Lifting, 1981. Waters TR et al. Revised NIOSH equation for the design and evaluation of manual lifting tasks. Ergonomics 1993. Gallagher S, Marras WS. Clin Biomech 2012. Jäger M. EXCLI J 2018.</li>
+<li>May S, Aina A. Centralization and directional preference: a systematic review. Man Ther 2012. Gillan MGC et al. Eur Spine J 1998.</li>
+</ul>
+<p><strong>Ejercicios</strong></p>
+<ul class="cite">
+<li>McGill SM. Low Back Disorders, 3ª ed. Human Kinetics, 2016. McGill SM. Back Mechanic. Backfitpro, 2015. McKenzie R. Treat Your Own Back (1980 y ediciones posteriores).</li>
+<li>McGill SM. Low back exercises: evidence for improving exercise regimens. Phys Ther 1998. Axler CT, McGill SM. Med Sci Sports Exerc 1997.</li>
+<li>Ekstrom RA et al. JOSPT 2007. Okubo Y et al. JOSPT 2010. Kavcic N, Grenier S, McGill SM. Spine 2004. Grenier SG, McGill SM. Arch Phys Med Rehabil 2007. Hodges PW, Richardson CA. Spine 1996.</li>
+<li>Hayden JA et al. Exercise therapy for chronic low back pain. Cochrane 2021 (CD009790). Lam OT et al. JOSPT 2018. Fernandez M et al. Spine 2015. Basson A et al. JOSPT 2017. Lin LH et al. Life 2023.</li>
+</ul>
+<p class="cite">Las citas de las pestañas Episodio y Ejercicios se verificaron a nivel de resumen; algunas cifras de compresión de McGill provienen de fuentes secundarias y lo indico donde aparecen.</p>`;

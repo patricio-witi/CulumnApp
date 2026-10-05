@@ -94,6 +94,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: bala
 .tabs { margin-left: auto; display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 .tabs button { border: 0; background: transparent; padding: 6px 14px; border-radius: 999px; cursor: pointer; color: var(--fg-2); font-weight: 500; white-space: nowrap; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+.tabs .s { display: none; }
 .icon-btn { border: 1px solid var(--line); background: var(--panel); width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 .icon-btn svg { width: 18px; height: 18px; }
 
@@ -179,6 +180,23 @@ input[type="search"] { border: 1px solid var(--line); background: var(--raised);
 #loading .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .hint { font-size: 12px; color: var(--muted); }
 
+/* barras de indicadores */
+.mbar { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-2); padding: 2px 0; }
+.mbar .track { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.mbar .track i { display: block; height: 100%; border-radius: 4px; transition: width .25s; }
+.mbar output { font-family: var(--font-data); font-size: 12px; color: var(--fg); min-width: 9ch; text-align: right; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.ep-legend dd { font-family: var(--font-ui); color: var(--muted); }
+/* ejercicios */
+.ex-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ex-list button { text-align: left; border: 1px solid var(--line); background: var(--raised); border-radius: 8px; padding: 7px 9px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; color: var(--fg); }
+.ex-list button small { color: var(--muted); font-size: 11px; }
+.ex-list button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.musc { display: flex; flex-direction: column; gap: 3px; }
+.musc .mbar { grid-template-columns: minmax(0, 1fr) 70px 8ch; }
+.tag { display: inline-block; font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--fg-2); margin: 0 4px 4px 0; }
+.tag.warn { border-color: var(--warning); color: var(--fg); }
+
 /* lección */
 .lesson-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dots { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -204,13 +222,17 @@ dialog .panel-body { max-height: 70vh; }
   .brand .sub { display: none; }
   .brand h1 { font-size: 19px; }
   .tabs { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); justify-content: space-between; z-index: 8; }
-  .tabs button { padding: 7px 8px; font-size: 13px; flex: 1; }
+  .tabs button { padding: 7px 4px; font-size: 12px; flex: 1; }
+  .tabs .l { display: none; }
+  .tabs .s { display: inline; }
+  .ex-list { grid-template-columns: 1fr; }
   #layers { position: fixed; top: calc(56px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; margin: 0; max-height: 55vh; display: none; }
   #layers.open { display: flex; }
   #side { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 58px); margin: 0; max-height: 46vh; }
   #side.collapsed .panel-body { display: none; }
   #views { bottom: auto; top: calc(56px + env(safe-area-inset-top, 0px)); left: 50%; max-width: calc(100vw - 24px); }
-  #legend { left: 12px; bottom: auto; top: calc(104px + env(safe-area-inset-top, 0px)); }
+  #legend { left: 12px; bottom: auto; top: calc(104px + env(safe-area-inset-top, 0px)); padding: 6px 8px; }
+  #legend .hint { display: none; }
   #mobile-toggle { display: grid; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -223,8 +245,10 @@ dialog .panel-body { max-height: 70vh; }
     <div class="brand"><h1>Columna 3D</h1><span class="sub">Atlas interactivo · huesos, discos, ligamentos, nervios y músculos</span></div>
     <nav class="tabs" role="tablist" aria-label="Secciones">
       <button role="tab" id="tab-explore" aria-selected="true" data-tab="explore">Explorar</button>
-      <button role="tab" id="tab-move" aria-selected="false" data-tab="move">Movimiento</button>
-      <button role="tab" id="tab-case" aria-selected="false" data-tab="case">Mi columna</button>
+      <button role="tab" id="tab-move" aria-selected="false" data-tab="move"><span class="l">Movimiento</span><span class="s">Mover</span></button>
+      <button role="tab" id="tab-case" aria-selected="false" data-tab="case"><span class="l">Mi columna</span><span class="s">Mi caso</span></button>
+      <button role="tab" id="tab-episode" aria-selected="false" data-tab="episode">Episodio</button>
+      <button role="tab" id="tab-exercise" aria-selected="false" data-tab="exercise"><span class="l">Ejercicios</span><span class="s">Ejercic.</span></button>
       <button role="tab" id="tab-class" aria-selected="false" data-tab="class">Clase</button>
     </nav>
     <button class="icon-btn" id="mobile-toggle" aria-label="Capas" title="Capas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg></button>

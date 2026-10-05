@@ -13,8 +13,11 @@ import { buildSkin } from './tissues/skin.js';
 import { ligamentCatalog } from './data/ligaments.js';
 import { nerveCatalog } from './data/nerves.js';
 import { DiscSystem } from './tissues/discs.js';
+import { InflammationFX } from './tissues/inflammation.js';
 import { PostureController, PostureAnimator } from './sim/posture.js';
 import { Biomech, estimateActivation, compressionIndex, affectedRoot } from './sim/biomech.js';
+import { EpisodeController } from './sim/episode.js';
+import { ExerciseController } from './sim/exercises.js';
 import { Picker } from './core/picker.js';
 import { UI } from './ui/ui.js';
 
@@ -50,7 +53,7 @@ async function boot() {
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.minDistance = 60;
-  controls.maxDistance = 3200;
+  controls.maxDistance = 6500;
   controls.update();
   const key = new THREE.DirectionalLight(0xfff1e0, 2.0);
   key.position.set(-700, 1100, -600);
@@ -87,7 +90,7 @@ async function boot() {
     const bname = rigBoneFor(rec);
     if (rec.frame === 'world') { mesh.matrixAutoUpdate = false; mesh.matrix.copy(rig.restInv[bname]); }
     rig.bones[bname].add(mesh);
-    const group = /^[LTC]\d+$/.test(rec.name) ? 'vertebrae' : /pelvis|sacrum|coccyx/.test(rec.name) ? 'pelvis' : /rib|sternum/.test(rec.name) ? 'thorax' : rec.name === 'skull' ? 'skull' : 'limbs';
+    const group = /^[LTC]\d+$/.test(rec.name) ? 'vertebrae' : /pelvis|sacrum|coccyx/.test(rec.name) ? 'pelvis' : /rib|sternum/.test(rec.name) ? 'thorax' : rec.name === 'skull' ? 'skull' : /humerus|forearm|hand/.test(rec.name) ? 'arms' : /tibia|foot/.test(rec.name) ? 'legs' : 'limbs';
     const item = { kind: 'bone', key: rec.name, id: rec.name, name: boneLabel(rec.name), group, mesh, rec };
     mesh.userData.item = item;
     bones[rec.name] = item;
@@ -100,7 +103,12 @@ async function boot() {
   progress('Insertando músculos…', 0.5);
   await nextFrame();
   const muscles = buildMuscles(registry);
-  for (const m of muscles) { m.group = 'muscle' + m.layer; scene.add(m.mesh); items.push(m); }
+  for (const m of muscles) {
+    m.group = 'muscle' + m.layer;
+    // modo desacoplado: la posición de la malla desplaza el músculo ya deformado (vista explosionada)
+    m.mesh.bindMode = THREE.DetachedBindMode;
+    scene.add(m.mesh); items.push(m);
+  }
   progress('Tendiendo ligamentos y nervios…', 0.7);
   await nextFrame();
   const ligaments = buildTissueSet(registry, ligamentCatalog(), 'ligament');
@@ -112,13 +120,24 @@ async function boot() {
   progress('Hidratando discos…', 0.82);
   await nextFrame();
   const discs = new DiscSystem(rig, data.json);
-  rig.root.add(discs.group);
+  scene.add(discs.group);
   for (const d of discs.discs) {
     const it = d.item;
     it.group = 'discs';
     items.push(it);
     const nIt = d.nucleus.userData.item; nIt.group = 'discs'; nIt.mesh = d.nucleus; items.push(nIt);
     const hIt = d.blob.userData.item; hIt.group = 'discs'; hIt.mesh = d.blob; items.push(hIt);
+  }
+  app.fx = new InflammationFX(scene);
+  // plomada: línea vertical por el centro de la pelvis para hacer visible el lateral shift
+  {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -935, -150), new THREE.Vector3(0, 760, -150)]);
+    const m = new THREE.LineDashedMaterial({ color: 0x1d6f73, dashSize: 14, gapSize: 9, transparent: true, opacity: 0.9, depthTest: false });
+    app.plumb = new THREE.Line(g, m);
+    app.plumb.computeLineDistances();
+    app.plumb.renderOrder = 30;
+    app.plumb.visible = false;
+    scene.add(app.plumb);
   }
   const skin = buildSkin(rig, data.json, registry);
   if (skin) { skin.group = 'skin'; scene.add(skin.mesh); items.push(skin); }
@@ -131,11 +150,13 @@ async function boot() {
   app.pathology = {};
   app.selected = null;
   app.compression = {};
+  app.episode = new EpisodeController(app);
+  app.exercise = new ExerciseController(app);
 
   // ---------- simulación ----------
   app.simulate = () => {
     const info = posture.apply();
-    discs.update(1);
+    discs.update(1, camera);
     registry.update();
     const st = posture.state;
     const frRelax = st.sit ? 0 : THREE.MathUtils.smoothstep(st.flex, 0.62, 0.82);
@@ -161,6 +182,9 @@ async function boot() {
       }
     }
     app.compression = comp;
+    if (app.explode) app.applyExplode();
+    app.episode?.frame();
+    app.exercise?.frame?.();
     for (const it of items) if (it.strands) { const on = it === app.selected || (app._extraHL && app._extraHL.includes(it)); for (const s of it.strands) s.hl = on ? 1 : 0; }
     registry.update();
     app.info = info;
@@ -170,7 +194,7 @@ async function boot() {
 
   // ---------- capas ----------
   app.layerState = {
-    vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true,
+    vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true, arms: false, legs: true,
     discs: true, ligaments: true, neural: true, dura: true, peripheral: true, fascia: false, skin: false,
     muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false,
   };
@@ -181,10 +205,12 @@ async function boot() {
       if (it.kind === 'nucleus' || it.kind === 'hernia') continue;
       let v = app.layerState[it.group] ?? true;
       if (app.isolated) v = it === app.isolated || it.kind === 'bone';
+      if (v && app.layerFilter) v = app.layerFilter(it);
       it.mesh.visible = v;
     }
     discs.layerVisible = app.layerState.discs || app.isolated?.kind === 'disc';
-    for (const d of discs.discs) d.nucleus.visible = discs.layerVisible && (!app.isolated || app.isolated === d.item);
+    // con un disco cortado, los núcleos vecinos se verían a través de las vértebras cortadas
+    for (const d of discs.discs) d.nucleus.visible = discs.layerVisible && (!app.isolated || app.isolated === d.item) && (!discs.cutaway || discs.cutaway === d.seg.id);
     setOpacity();
     app.dirty = true;
   };
@@ -209,6 +235,25 @@ async function boot() {
     app.applyLayers();
   };
 
+  // ---------- vista explosionada ----------
+  // desplazamiento (mm) de cada capa a separación máxima, en el marco del cuerpo: x hacia el lado del músculo,
+  // z negativo hacia atrás. Los músculos anteriores (psoas, pared abdominal) se separan hacia delante.
+  const EXPLODE = {
+    2: [4, 0, -28], 3: [22, 0, -62], 4: [34, 0, -100], 5: [48, 0, -145], 7: [44, 0, -95],
+    psoas: [40, 0, 45], iliacus: [44, 0, 40], ql: [40, 0, -40], rectus: [12, 0, 85], eo: [95, 0, 45], io: [62, 0, 28], ta: [34, 0, 14],
+    gmed: [70, 0, -40], piriformis: [40, 0, -60], hamstrings: [30, 0, -60],
+  };
+  app.explode = 0;
+  const _off = new THREE.Vector3();
+  app.applyExplode = () => {
+    const q = rig.root.quaternion;
+    for (const m of muscles) {
+      const o = EXPLODE[m.id] || EXPLODE[m.layer] || [0, 0, 0];
+      _off.set(o[0] * (m.side === 'L' ? 1 : -1), o[1], o[2]).multiplyScalar(app.explode).applyQuaternion(q);
+      m.mesh.position.copy(_off);
+    }
+  };
+
   // ---------- color ----------
   app.setColorMode = (mode) => {
     app.colorMode = mode;
@@ -229,6 +274,7 @@ async function boot() {
   app.clip = { mode: 'none', level: 'L4-L5', offset: 0 };
   app.setClip = (c) => {
     Object.assign(app.clip, c);
+    discs.setInterior(app.clip.mode !== 'none');
     const { mode, level, offset } = app.clip;
     if (mode === 'none') renderer.clippingPlanes = [];
     else if (mode === 'sagittal') renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(1, 0, 0), -offset)];
@@ -292,6 +338,39 @@ async function boot() {
       neck: () => { const t = P('C4'); return [t.clone().add(V(-340, 90, -300)), t]; },
       pelvis: () => { const t = R('S1', [0, -40, 0]); return [t.clone().add(V(-440, 180, -560)), t]; },
       sagittalCut: () => { const t = R('L2', [0, 0, -10]); return [t.clone().add(V(-820, 60, 40)), t]; },
+      // episodio: corte del disco afectado desde delante y del lado de la lesión
+      discCut: () => {
+        const f = discs.cutFrame(app.episodeSeg || 'L4-L5');
+        const dir = f.w.clone().addScaledVector(f.u, 0.1).addScaledVector(f.up, 0.42).normalize();
+        const t = f.c.clone().addScaledVector(f.u, 12);
+        return [t.clone().addScaledVector(dir, 215), t];
+      },
+      // raíz y foramen del lado afectado, desde atrás y de ese lado
+      rootObl: () => {
+        const d = discs.byId[app.episodeSeg || 'L4-L5'];
+        const sx = (app.episode?.cfg.side || 'L') === 'L' ? 1 : -1;
+        const t = P(d.upperBone, [16 * sx, -d.Hup / 2 - 14, -14]);
+        return [t.clone().add(V(330 * sx, 170, -330)), t];
+      },
+      // cuerpo entero orientado para ver el dermatoma de la raíz afectada
+      painLeg: () => {
+        const ep = app.episode;
+        const sx = (ep?.cfg.side || 'L') === 'L' ? 1 : -1;
+        const root = ep?.S.root;
+        const az = (root === 'L5' ? 62 : root === 'S1' ? 28 : root === 'L4' ? 128 : 22) * Math.PI / 180;
+        const D = 2600;
+        const t = V(0, -300, 10);
+        return [t.clone().add(V(Math.sin(az) * D * sx, 260, -Math.cos(az) * D)), t];
+      },
+      // tronco y pelvis por detrás, con la plomada, para ver el shift
+      exercise: () => app.exercise.frameCamera(camera, app.free),
+      shiftPost: () => { const t = R('L2', [0, 40, 0]); return [t.clone().add(V(0, 120, -1900)), t]; },
+      // lateral desde el lado afectado, con margen para la flexión
+      lateralAff: () => {
+        const sx = (app.episode?.cfg.side || 'L') === 'L' ? 1 : -1;
+        const t = R('S1', [0, 20, 0]).add(V(0, -260, 300));
+        return [t.clone().add(V(2750 * sx, 260, 260)), t];
+      },
     };
     const v = (views[name] || views.postObl)();
     app.flyTo(v[0], v[1]);
@@ -334,9 +413,11 @@ async function boot() {
       const lp = document.getElementById('layers').getBoundingClientRect();
       const left = lp.width ? lp.right : 0, right = sp.width ? sp.left : W;
       ox = (left + right) / 2 - W / 2;
+      app.free = { w: right - left, h: H - 90 };
     } else {
       const top = 100, bottom = sp.height ? sp.top : H - 60;
       oy = (top + bottom) / 2 - H / 2;
+      app.free = { w: W, h: bottom - top };
     }
     app.viewOffsetX = ox;
     if (Math.abs(ox) > 1 || Math.abs(oy) > 1) camera.setViewOffset(W, H, -ox, -oy, W, H); else camera.clearViewOffset();
@@ -357,9 +438,13 @@ async function boot() {
   let lastUI = 0;
   const loop = (now) => {
     const anim = animator.tick(now);
+    if (app.episode.active && now - app.episode.t0 < 3600) app.dirty = true;
+    if (app.exercise.active && !app.exercise.paused) app.dirty = true;
     if (anim || app.dirty) { app.simulate(); app.dirty = false; }
     if (app.clip.mode === 'axial' && (anim || app.metricsDirty)) app.setClip({});
     tissueUniforms.uTime.value = now / 1000;
+    app.fx.tick(now / 1000);
+    if (skin) skin.pain.uTime.value = now / 1000;
     if (tween) {
       const u = Math.min(1, (now - tween.start) / tween.dur);
       const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
@@ -368,6 +453,7 @@ async function boot() {
       if (u >= 1) tween = null;
     }
     controls.update();
+    if (discs.cutaway) discs.orientCut(camera);
     renderer.render(scene, camera);
     if (app.metricsDirty && now - lastUI > 120) { app.ui.updateMetrics(); app.metricsDirty = false; lastUI = now; }
   };

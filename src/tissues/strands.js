@@ -11,8 +11,9 @@ export class StrandRegistry {
     this.resolver = resolver;
     this.strands = [];
     this.max = max;
-    this.data = new Float32Array(max * 4);
-    this.tex = new THREE.DataTexture(this.data, max, 1, THREE.RGBAFormat, THREE.FloatType);
+    // fila 0: estiramiento, actividad, resaltado, compresión · fila 1: señal de dolor, edema, defensa muscular
+    this.data = new Float32Array(max * 4 * 2);
+    this.tex = new THREE.DataTexture(this.data, max, 2, THREE.RGBAFormat, THREE.FloatType);
     this.tex.needsUpdate = true;
     this.boneIndex = Object.fromEntries(rig.boneList.map((b, i) => [b.name, i]));
     this.skeleton = new THREE.Skeleton(rig.boneList);
@@ -181,6 +182,10 @@ export class StrandRegistry {
       this.data[i + 1] = st.act;
       this.data[i + 2] = st.hl;
       this.data[i + 3] = st.extra || 0;
+      const j = (this.max + st.id) * 4;
+      this.data[j] = st.signal || 0;
+      this.data[j + 1] = st.edema || 0;
+      this.data[j + 2] = st.guard || 0;
     }
     this.tex.needsUpdate = true;
   }
