@@ -9,6 +9,7 @@ import { CAP_GLSL } from '../core/bones.js';
 
 const N = 48; // puntos del contorno
 const M = 10; // anillos en altura
+const FIBERS = 14, FIBER_SEG = 5;
 const LAMELLAE = [1, 0.87, 0.75, 0.64, 0.54]; // factor radial de cada lámina (exterior → interior)
 const DETAILED = ['T12-L1', 'L1-L2', 'L2-L3', 'L3-L4', 'L4-L5', 'L5-S1'];
 
@@ -72,6 +73,11 @@ export class DiscSystem {
     this.layerVisible = true;
     this.stress = null; // { seg, angle, amount } punto de tensión (mala fuerza)
     this.inflam = {}; // seg → 0..1 (tejido de granulación en la fisura)
+    this.morning = 0; // 0..1: disco recién hidratado tras la noche (tensiones de flexión mayores)
+    this.ingrowth = {}; // seg → 0..1 profundidad de fibras nerviosas que crecen por la fisura (1/3 externo → núcleo)
+    // se dibujan por encima del anillo (que es opaco) para que se vea hasta dónde llegan
+    this.fiberMat = new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.95, depthTest: false });
+    this.fiberPtsMat = new THREE.PointsMaterial({ color: 0xffc21a, size: 3.2, sizeAttenuation: false, transparent: true, opacity: 0.95, depthTest: false });
     const recs = Object.fromEntries(bonesJson.bones.map((b) => [b.name, b]));
     const bump = annulusTexture();
     this.makeAnnulusMat = () => {
@@ -163,8 +169,20 @@ export class DiscSystem {
       const Hup = upperP.bodyH;
       const W = (upperP.bodyW + (lowerP ? lowerP.bodyW : upperP.bodyW)) / 2;
       const D = (upperP.bodyD + (lowerP ? lowerP.bodyD : upperP.bodyD)) / 2;
+      // fibras nerviosas que crecen hacia el interior a lo largo de la fisura (Freemont et al. 1997)
+      const fg = new THREE.BufferGeometry();
+      fg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(FIBERS * FIBER_SEG * 2 * 3 * 2), 3));
+      const fibers = new THREE.LineSegments(fg, this.fiberMat);
+      fibers.frustumCulled = false;
+      fibers.visible = false;
+      fibers.renderOrder = 25;
+      fibers.name = 'fibras:' + seg.id;
+      const fiberPts = new THREE.Points(fg, this.fiberPtsMat);
+      fiberPts.frustumCulled = false;
+      fiberPts.renderOrder = 25;
+      fibers.add(fiberPts);
       const d = {
-        seg, mesh, endplates, nucleus, blob, tongue, oLo, oUp, Hlo, Hup, W, D, lam,
+        seg, mesh, endplates, nucleus, blob, tongue, fibers, oLo, oUp, Hlo, Hup, W, D, lam,
         lowerBone: seg.lower, upperBone: seg.upper,
         h0: new Float32Array(N), delta: new Float32Array(N),
         state: { nucleusShift: new THREE.Vector2(), compAnt: 0, compPost: 0, compL: 0, compR: 0, meanH: 0, push: 0, herniaCenter: new THREE.Vector3(), herniaR: 0, fissureWorld: new THREE.Vector3(), radial: new THREE.Vector3() },
@@ -177,7 +195,7 @@ export class DiscSystem {
       blob.userData.item = { ...item, key: 'hernia:' + seg.id, kind: 'hernia', name: `Material discal herniado ${seg.id}` };
       tongue.userData.item = blob.userData.item;
       d.item = item;
-      this.group.add(mesh, endplates, nucleus, blob, tongue);
+      this.group.add(mesh, endplates, nucleus, blob, tongue, fibers);
       this.discs.push(d);
     }
     this.byId = Object.fromEntries(this.discs.map((d) => [d.seg.id, d]));
@@ -207,7 +225,7 @@ export class DiscSystem {
     const idx = [];
     const L = d.lam.length;
     const H = HERNIA[d.hern || 'none'];
-    const breach = Math.min(L, H.breach || 0);
+    const breach = Math.min(L, (H.breach || 0) + (H.breach ? d.breachExtra || 0 : 0));
     const ha = this.hAngle(d);
     const half = 0.17;
     const show = this.interior || this.cutaway === d.seg.id || this.xray;
@@ -242,6 +260,8 @@ export class DiscSystem {
       d.zone = pt?.zone || 'paracentral';
       d.side = pt?.side || 'L';
       d.size = pt?.size ?? 1; // escala del material herniado (reabsorción)
+      d.breachExtra = pt?.breachExtra || 0; // láminas rotas adicionales (fisura que progresa con las crisis)
+      if (pt?.slip) this.rig.slip[d.seg.id] = pt.slip; else delete this.rig.slip[d.seg.id];
       this.rig.discLoss[d.seg.id] = d.seg.disc * G.loss;
       this.rebuildIndex(d);
     }
@@ -290,11 +310,12 @@ export class DiscSystem {
       cTop.set(0, -d.Hup / 2 + 0.5, 0).applyMatrix4(mUp);
       // compresión por borde
       let cA = 0, cP = 0, cL = 0, cR = 0, hSum = 0;
+      const hyd = this.rig.discHydration[d.seg.id] || 0; // la hidratación no es distensión
       for (let i = 0; i < N; i++) {
         this.endpoints(d, i, bot, top);
         const h = bot.distanceTo(top);
         hSum += h;
-        const del = d.h0[i] - h;
+        const del = d.h0[i] + hyd - h;
         d.delta[i] = del;
         const th = (i / N) * Math.PI * 2;
         cA += del * Math.max(0, Math.cos(th)); cP += del * Math.max(0, -Math.cos(th));
@@ -347,7 +368,10 @@ export class DiscSystem {
             tmp.copy(lb).lerp(lt, t).addScaledVector(rad, (bul * env) * Math.pow(f, 1.5) + lobe * Math.pow(Math.sin(Math.PI * t), 0.55) * Math.pow(f, 3) + wob * env + inward);
             pos[o] = tmp.x; pos[o + 1] = tmp.y; pos[o + 2] = tmp.z;
             if (this.pressureView) {
-              const k = THREE.MathUtils.clamp((del / Math.max(1, d.h0[i])) * 6 * load + (load - 1) * 0.35, -1, 1);
+              // por la mañana el disco hidratado soporta tensiones de flexión mucho mayores (Adams et al. 1987)
+              const morningK = 1 + 2.2 * this.morning;
+              const kr = (del / Math.max(1, d.h0[i])) * 6 * load * (del > 0 ? morningK : 1) + (load - 1) * 0.35 + 0.12 * this.morning;
+              const k = THREE.MathUtils.clamp(kr / (1 + Math.abs(kr) * 0.45), -1, 1);
               cc.copy(neutral).lerp(k > 0 ? hot : cold, Math.abs(k));
             } else {
               cc.copy(d.aColor || neutral);
@@ -419,6 +443,7 @@ export class DiscSystem {
         d.state.herniaR = 0;
         d.state.herniaCenter.copy(wall);
       }
+      this.updateFibers(d, cBot, cTop, hAngle, hasH);
     }
     if (camera) this.orientCut(camera);
   }
@@ -462,6 +487,46 @@ export class DiscSystem {
     if (w.z < 0) w.negate();
     const c = new THREE.Vector3(0, d.Hlo / 2, 0).applyMatrix4(mLo).lerp(new THREE.Vector3(0, -d.Hup / 2, 0).applyMatrix4(mUp), 0.5);
     return { c, u: u.applyQuaternion(qMid), w: w.applyQuaternion(qMid), up: new THREE.Vector3(0, 1, 0).applyQuaternion(qMid) };
+  }
+
+  // Fibras nerviosas: desde el tercio externo del anillo hacia dentro, a lo largo de la fisura.
+  // depth 1/3: sólo el tercio externo (disco sano); 2/3: tercio interno; 1: hasta el núcleo.
+  updateFibers(d, cBot, cTop, hAngle, hasH) {
+    const depth = this.ingrowth[d.seg.id] || 0;
+    const show = depth > 0 && this.layerVisible && (this.interior || this.cutaway === d.seg.id || this.xray);
+    d.fibers.visible = show;
+    if (!show) return;
+    const [bot, top] = this._v;
+    const arr = d.fibers.geometry.attributes.position.array;
+    const center = cBot.clone().lerp(cTop, 0.5);
+    const a0 = hasH ? hAngle : Math.PI - 0.42;
+    const p = new THREE.Vector3(), q = new THREE.Vector3(), wall = new THREE.Vector3();
+    let o = 0;
+    for (let f = 0; f < FIBERS; f++) {
+      // abanico alrededor de la fisura; unas pocas fibras normales en el resto del borde externo
+      const near = f < FIBERS * 0.7;
+      const spread = near ? (f / (FIBERS * 0.7) - 0.5) * 0.55 : ((f * 2.39) % (Math.PI * 2));
+      const ang = near ? a0 + spread : spread;
+      const i = ((Math.round((ang / (Math.PI * 2)) * N) % N) + N) % N;
+      this.endpoints(d, i, bot, top);
+      const hf = 0.3 + 0.4 * ((f * 0.618) % 1);
+      wall.copy(bot).lerp(top, hf);
+      const reach = near ? depth : Math.min(depth, 0.3);
+      const inner = 1 - reach * (0.75 + 0.25 * ((f * 0.37) % 1));
+      for (let k = 0; k < FIBER_SEG; k++) {
+        const t0 = 1 - (1 - inner) * (k / FIBER_SEG), t1 = 1 - (1 - inner) * ((k + 1) / FIBER_SEG);
+        const wob = Math.sin(f * 3.1 + k * 1.7) * 0.6;
+        p.copy(center).lerp(wall, t0).y += wob * 0.3;
+        q.copy(center).lerp(wall, t1).y += Math.sin(f * 3.1 + (k + 1) * 1.7) * 0.18;
+        arr.set([p.x, p.y, p.z, q.x, q.y, q.z], o); o += 6;
+        // ramita lateral
+        const br = q.clone().add(new THREE.Vector3(Math.sin(f + k) * 1.4, Math.cos(f * 2 + k) * 0.6, Math.cos(f + k) * 1.4));
+        arr.set([q.x, q.y, q.z, br.x, br.y, br.z], o); o += 6;
+      }
+    }
+    d.fibers.geometry.setDrawRange(0, o / 3);
+    d.fibers.geometry.attributes.position.needsUpdate = true;
+
   }
 
   buildTongue(d, pts, radii) {

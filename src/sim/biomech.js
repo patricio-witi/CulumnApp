@@ -9,7 +9,7 @@ const DISC_AREA = { 'L3-L4': 1700, 'L4-L5': 1800, 'L5-S1': 1750 }; // mm²
 
 // Valores de referencia in vivo, L4-L5 (Wilke et al., Spine 1999; n = 1, varón de 45 años, 70 kg)
 export const WILKE = [
-  { label: 'Acostado boca arriba', mpa: 0.1 },
+  { label: 'Acostado boca abajo', mpa: 0.1 },
   { label: 'Acostado de lado', mpa: 0.12 },
   { label: 'Sentado relajado sin respaldo', mpa: 0.46 },
   { label: 'De pie relajado', mpa: 0.5 },
@@ -37,8 +37,20 @@ export class Biomech {
         this.foramenPairs[seg + s] = { a, b };
       }
     }
+    // canal central a la altura del disco: borde posterior del cuerpo inferior ↔ lámina de la vértebra superior
+    this.canalPairs = {};
+    for (const [seg, up, lo] of [['L3-L4', 'L3', 'L4'], ['L4-L5', 'L4', 'L5']]) {
+      this.canalPairs[seg] = { a: resolver.resolve(`${lo}.postTop`), b: resolver.resolve({ lerp: [`${up}.lamBotL`, `${up}.lamBotR`, 0.5] }) };
+    }
     this.compute();
     this.restMetrics = JSON.parse(JSON.stringify(this.metrics));
+  }
+
+  // % de cambio del diámetro sagital del canal respecto de reposo
+  canalChange(seg) {
+    const r = this.restMetrics?.canal?.[seg];
+    const c = this.metrics?.canal?.[seg];
+    return r && c ? c / r - 1 : 0;
   }
 
   wp(anchor, v = new THREE.Vector3()) {
@@ -94,7 +106,9 @@ export class Biomech {
     // raíces
     const roots = {};
     for (const n of this.items.nerves) if (n.root) roots[n.id] = { strain: n.strands[0].strain, root: n.root, side: n.side };
-    this.metrics = { comp, shear, M, Mlat, mpa, Fm, W, foramen, roots, discCenter: c };
+    const canal = {};
+    for (const [k, { a, b }] of Object.entries(this.canalPairs || {})) canal[k] = this.wp(a).distanceTo(this.wp(b));
+    this.metrics = { comp, shear, M, Mlat, mpa, Fm, W, foramen, canal, roots, discCenter: c };
     return this.metrics;
   }
 

@@ -7,6 +7,7 @@ import { affectedRoot, WILKE } from '../sim/biomech.js';
 import { DEFAULT_STATE } from '../sim/posture.js';
 import { STRUCTURES, STAGES, stageText } from '../sim/episode.js';
 import { EXERCISES, PUBLISHED_COMPRESSION } from '../sim/exercises.js';
+import { CaseUI } from './case.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
@@ -40,7 +41,7 @@ const LAYER_DEFS = [
   { title: 'Huesos', rows: [['vertebrae', 'Vértebras', 'var(--bone)'], ['pelvis', 'Pelvis, sacro y cóccix', 'var(--bone)'], ['thorax', 'Costillas y esternón', 'var(--bone)'], ['skull', 'Cráneo', 'var(--bone)'], ['limbs', 'Escápulas, clavículas y fémures', 'var(--bone)'], ['legs', 'Piernas y pies', 'var(--bone)'], ['arms', 'Brazos y manos', 'var(--bone)']], opacity: 'bones' },
   { title: 'Discos y ligamentos', rows: [['discs', 'Discos intervertebrales', 'var(--disc)'], ['ligaments', 'Ligamentos y cápsulas', 'var(--lig)']] },
   { title: 'Sistema nervioso', rows: [['neural', 'Médula y raíces', 'var(--nerve)'], ['dura', 'Saco dural', 'var(--disc)'], ['peripheral', 'Nervios periféricos', 'var(--nerve)']] },
-  { title: 'Músculos', rows: [['muscle2', 'Profundos (multífido, rotadores)', 'var(--muscle)'], ['muscle3', 'Erectores, cuadrado lumbar, psoas', 'var(--muscle)'], ['muscle4', 'Intermedios (romboides, esplenios)', 'var(--muscle)'], ['muscle5', 'Superficiales (trapecio, dorsal ancho)', 'var(--muscle)'], ['muscle6', 'Pared abdominal', 'var(--muscle)'], ['muscle7', 'Cadera (glúteos, piriforme)', 'var(--muscle)']], opacity: 'muscles' },
+  { title: 'Músculos', rows: [['muscle2', 'Profundos (multífido, rotadores)', 'var(--muscle)'], ['muscle3', 'Erectores, cuadrado lumbar, psoas', 'var(--muscle)'], ['muscle4', 'Intermedios (romboides, esplenios)', 'var(--muscle)'], ['muscle5', 'Superficiales (trapecio, dorsal ancho)', 'var(--muscle)'], ['muscle6', 'Pared abdominal', 'var(--muscle)'], ['muscle7', 'Cadera (glúteos, piriforme, isquiotibiales)', 'var(--muscle)'], ['muscle8', 'Muslo y pierna (cuádriceps, tibial, gemelos)', 'var(--muscle)']], opacity: 'muscles' },
   { title: 'Fascia y piel', rows: [['fascia', 'Fascia toracolumbar', 'var(--lig)'], ['skin', 'Silueta corporal', 'var(--bone)']] },
 ];
 
@@ -53,6 +54,7 @@ export class UI {
     this.side = $('#side-body');
     this.buildLayers();
     this.buildViews();
+    this.caseUI = new CaseUI(this);
     this.bindTop();
     this.bindPointer();
     this.showTab('explore');
@@ -77,11 +79,14 @@ export class UI {
   }
 
   showTab(tab) {
+    const prev = this.tab;
     this.tab = tab;
+    if (prev === 'case' && tab !== 'case') this.caseUI.leave();
     for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-    $('#side-title').textContent = { explore: 'Explorar', move: 'Movimiento', case: 'Mi columna', episode: 'Episodio', exercise: 'Ejercicios', class: 'Clase' }[tab];
+    $('#side-title').textContent = { explore: 'Explorar', move: 'Movimiento', case: 'Mi caso', episode: 'Episodio', exercise: 'Ejercicios', class: 'Clase' }[tab];
     if (tab !== 'episode' && this.app.episode.active) this.endEpisode();
-    if (tab !== 'exercise' && this.app.exercise?.active) { this.app.exercise.stop(); this.resetLayers(); this.setColor('anat'); this.app.view('postObl'); }
+    // salir de Ejercicios detiene el ejercicio (las demostraciones de Mi caso usan el mismo motor y se gestionan allí)
+    if (prev === 'exercise' && tab !== 'exercise' && this.app.exercise?.active) { this.app.exercise.stop(); this.resetLayers(); this.setColor('anat'); this.app.view('postObl'); }
     $('#side').classList.remove('collapsed');
     $('#layers').classList.remove('open');
     if ($('#side-collapse')) $('#side-collapse').textContent = 'Ocultar';
@@ -90,7 +95,7 @@ export class UI {
     this.side.scrollTop = 0;
     if (tab === 'explore') this.renderExplore();
     if (tab === 'move') this.renderMove();
-    if (tab === 'case') this.renderCase();
+    if (tab === 'case') this.caseUI.render(this.side);
     if (tab === 'episode') this.renderEpisode();
     if (tab === 'exercise') this.renderExercise();
     if (tab === 'class') this.renderClass();
@@ -166,7 +171,7 @@ export class UI {
     body.append(col);
     $('#reset-layers').addEventListener('click', () => this.resetLayers());
     this.resetLayers = () => {
-      Object.assign(app.layerState, { vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true, arms: false, legs: true, discs: true, ligaments: true, neural: true, dura: true, peripheral: true, fascia: false, skin: false, muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false });
+      Object.assign(app.layerState, { vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true, arms: false, legs: true, discs: true, ligaments: true, neural: true, dura: true, peripheral: true, fascia: false, skin: false, muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false, muscle8: false });
       app.opacity.bones = 1; app.opacity.muscles = 1;
       app.isolated = null;
       $('#dissect').value = 3; upd();
@@ -401,12 +406,12 @@ export class UI {
     }
   }
 
-  // ---------------- Mi columna ----------------
-  renderCase() {
+  // ---------------- Mi caso → Mi disco (configuración de la discopatía) ----------------
+  renderDiskConfig(container) {
     const app = this.app;
     const intro = h(`<div class="group"><h3>Simula tu discopatía</h3><div class="prose"><p>Elige el grado de degeneración y, si tu informe lo menciona, el tipo y la ubicación de la hernia. El modelo ajusta la altura del disco, el núcleo y el material herniado, e indica qué raíz queda comprometida y cómo cambia al moverte.</p></div>
       <div class="row"><button class="btn" id="ex-case">Cargar ejemplo</button><button class="btn ghost" id="clear-case">Disco sano</button></div></div>`);
-    this.side.append(intro);
+    container.append(intro);
     $('#ex-case').addEventListener('click', () => { app.setPathology({ 'L4-L5': { grade: 4, hern: 'protrusion', zone: 'paracentral', side: 'L' }, 'L5-S1': { grade: 5, hern: 'none', zone: 'paracentral', side: 'L' }, 'L3-L4': { grade: 3, hern: 'none', zone: 'paracentral', side: 'L' } }); this.showTab('case'); this.focusDiscs(); });
     $('#clear-case').addEventListener('click', () => { app.setPathology({}); this.showTab('case'); });
     for (const seg of ['L3-L4', 'L4-L5', 'L5-S1']) {
@@ -416,18 +421,20 @@ export class UI {
         <div class="hint">${PFIRRMANN[p.grade || 1].label}</div>
         <div class="row"><select data-hern aria-label="Tipo de hernia en ${seg}">${Object.entries(HERNIA).map(([k, v]) => `<option value="${k}" ${p.hern === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
         <div class="row"><select data-zone aria-label="Zona de la hernia en ${seg}">${Object.entries(ZONES).map(([k, v]) => `<option value="${k}" ${p.zone === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
-        <div class="seg" data-side><button data-s="L" aria-pressed="${p.side !== 'R'}">Izquierda</button><button data-s="R" aria-pressed="${p.side === 'R'}">Derecha</button></div></div></div>`);
+        <div class="seg" data-side><button data-s="L" aria-pressed="${p.side !== 'R'}">Izquierda</button><button data-s="R" aria-pressed="${p.side === 'R'}">Derecha</button></div></div>
+        ${seg === 'L4-L5' ? `<div class="row"><label class="hint" for="slip-sel">Espondilolistesis (L4 sobre L5)</label><select id="slip-sel" data-slip>${[0, 3, 6, 9].map((mm) => `<option value="${mm}" ${(p.slip?.base || 0) === mm ? 'selected' : ''}>${mm ? mm + ' mm' : 'No'}</option>`).join('')}</select></div>` : ''}</div>`);
       const upd = (patch) => { const cur = { ...(app.pathology[seg] || { grade: 1, hern: 'none', zone: 'paracentral', side: 'L' }), ...patch }; app.setPathology({ ...app.pathology, [seg]: cur }); this.showTab('case'); };
       for (const b of card.querySelectorAll('[data-g]')) b.addEventListener('click', () => upd({ grade: +b.dataset.g }));
       $('[data-hern]', card).addEventListener('change', (e) => upd({ hern: e.target.value }));
       $('[data-zone]', card).addEventListener('change', (e) => upd({ zone: e.target.value }));
       for (const b of card.querySelectorAll('[data-s]')) b.addEventListener('click', () => upd({ side: b.dataset.s }));
+      $('[data-slip]', card)?.addEventListener('change', (e) => { const mm = +e.target.value; upd({ slip: mm ? { base: mm, dyn: 2.4 } : undefined }); });
       $('[data-look]', card).addEventListener('click', () => { this.focusDiscs(); const it = app.itemByKey['disc:' + seg]; app.select(it, { focus: true }); });
-      this.side.append(card);
+      container.append(card);
     }
     const res = h(`<div class="group"><h3>Raíces comprometidas</h3><div id="case-roots"></div><div id="case-derm"></div>
       <div class="cite">Índice ilustrativo: combina el tipo de hernia con la migración del núcleo, el cambio de altura foraminal y la tensión de la raíz calculados en el modelo. Mapa de dermatomas aproximado: en la realidad se superponen y varían entre personas.</div></div>`);
-    this.side.append(res);
+    container.append(res);
     const shift = h(`<div class="group"><h3>Lateral shift</h3><div class="prose">
       <p>Prueba qué pasa en el modelo cuando el tronco se desplaza <strong>alejándose</strong> o <strong>acercándose</strong> al lado de la hernia. Observa la altura del foramen y el índice de compresión de la raíz.</p></div>
       <div class="row"><button class="chip" data-shift="away">Alejarse de la hernia</button><button class="chip" data-shift="toward">Hacia la hernia</button><button class="chip" data-shift="none">Neutro</button></div>
@@ -444,9 +451,9 @@ export class UI {
       app.animator.play([{ t: 2.2, state: { ...DEFAULT_STATE, shift: 0.9 * dir, shiftKyphosis: 0.5 } }]);
       app.view('postFull');
     });
-    this.side.append(shift);
-    this.side.append(h(`<div class="callout"><strong>Señales de alarma: consulta de urgencia</strong> si hay adormecimiento genital o “en silla de montar”, dificultad para orinar o pérdida del control de esfínteres, ciática en ambas piernas o debilidad que progresa.</div>`));
-    this.side.append(h(`<div class="card"><div class="eyebrow">Para leer tu informe con perspectiva</div><div class="prose"><p>En personas sin dolor: degeneración discal en el 37 % a los 20 años y en el 96 % a los 80; protrusiones en el 29 % y 43 % (Brinjikji et al., AJNR 2015). Regresión espontánea observada: secuestro 96 %, extrusión 70 %, protrusión 41 %, abombamiento 13 % (Chiu et al., Clin Rehabil 2015).</p></div></div>`));
+    container.append(shift);
+    container.append(h(`<div class="callout"><strong>Señales de alarma: consulta de urgencia</strong> si hay adormecimiento genital o “en silla de montar”, dificultad para orinar o pérdida del control de esfínteres, ciática en ambas piernas o debilidad que progresa.</div>`));
+    container.append(h(`<div class="card"><div class="eyebrow">Para leer tu informe con perspectiva</div><div class="prose"><p>En personas sin dolor: degeneración discal en el 37 % a los 20 años y en el 96 % a los 80; protrusiones en el 29 % y 43 % (Brinjikji et al., AJNR 2015). Regresión espontánea observada: secuestro 96 %, extrusión 70 %, protrusión 41 %, abombamiento 13 % (Chiu et al., Clin Rehabil 2015).</p></div></div>`));
   }
 
   focusDiscs() {
@@ -681,7 +688,7 @@ export class UI {
     const ex = X.ex;
     const layers = new Set(ex.muscles.map((m) => app.muscles.find((x) => x.id === m.id)?.layer).filter(Boolean));
     Object.assign(app.layerState, { skin: true, fascia: false, arms: true, legs: true, ligaments: false, neural: ex.id === 'slider', peripheral: ex.id === 'slider', dura: false, discs: true, pelvis: true, thorax: true, skull: true, limbs: true, vertebrae: true });
-    for (let l = 2; l <= 7; l++) app.layerState['muscle' + l] = l <= 3 || layers.has(l);
+    for (let l = 2; l <= 8; l++) app.layerState['muscle' + l] = l <= 3 || layers.has(l);
     app.isolated = null;
     app.applyLayers();
     this.syncLayerChecks();
@@ -793,6 +800,7 @@ export class UI {
       $('#narrative').innerHTML = this.narrative(info, m);
     }
     if (this.tab === 'episode') this.updateEpisode();
+    if (this.tab === 'case') this.caseUI.update();
     if (this.tab === 'case' && $('#case-roots')) {
       const comp = Object.values(app.compression);
       const el = $('#case-roots');
@@ -801,7 +809,7 @@ export class UI {
         const s = statusFor(c.idx);
         const inf = infoFor({ root: c.root, kind: 'nerve' });
         return `<div class="card"><div class="row" style="justify-content:space-between"><strong>Raíz ${c.root} ${c.side === 'L' ? 'izquierda' : 'derecha'}</strong><span class="status"><i style="background:var(--${s.cls})"></i>${s.label} · ${Math.round(c.idx * 100)} %</span></div>
-        <div class="hint">${HERNIA[c.hern].label.split(' (')[0]} ${ZONES[c.zone].label.toLowerCase()} en ${c.seg}. Empuje del núcleo hacia la hernia: ${sgn(c.push, 2)} · foramen ${sgn(c.forCh * 100, 0)} % · tensión de la raíz ${sgn(c.strain * 100)} %</div>
+        <div class="hint">${c.hern === 'slip' ? `Espondilolistesis en ${c.seg}: deslizamiento ${f1(c.slip || 0)} mm · canal ${sgn((c.canal || 0) * 100, 0)} % · foramen ${sgn(c.forCh * 100, 0)} %` : `${HERNIA[c.hern].label.split(' (')[0]} ${ZONES[c.zone].label.toLowerCase()} en ${c.seg}. Empuje del núcleo hacia la hernia: ${sgn(c.push, 2)} · foramen ${sgn(c.forCh * 100, 0)} % · tensión de la raíz ${sgn(c.strain * 100)} %`}</div>
         <div class="prose" style="font-size:13px">${inf?.clinic?.split('. ').slice(-1)[0] || ''}</div></div>`;
       }).join('');
       const act = {};
@@ -885,4 +893,32 @@ const ABOUT = `
 <li>Ekstrom RA et al. JOSPT 2007. Okubo Y et al. JOSPT 2010. Kavcic N, Grenier S, McGill SM. Spine 2004. Grenier SG, McGill SM. Arch Phys Med Rehabil 2007. Hodges PW, Richardson CA. Spine 1996.</li>
 <li>Hayden JA et al. Exercise therapy for chronic low back pain. Cochrane 2021 (CD009790). Lam OT et al. JOSPT 2018. Fernandez M et al. Spine 2015. Basson A et al. JOSPT 2017. Lin LH et al. Life 2023.</li>
 </ul>
-<p class="cite">Las citas de las pestañas Episodio y Ejercicios se verificaron a nivel de resumen; algunas cifras de compresión de McGill provienen de fuentes secundarias y lo indico donde aparecen.</p>`;
+<p><strong>Mi caso: qué es cálculo y qué es ilustración</strong></p>
+<ul>
+<li>Tensión neural (elevación de la pierna recta, elevación cruzada, slump): el alargamiento del tracto ciático–tibial sale de la geometría del modelo (≈1,1 % a 20° de elevación, 3,2 % a 60° y 4 % a 80°). La holgura, el reparto de la tensión entre raíces y los umbrales de dolor están calibrados para reproducir el comportamiento clínico descrito. No predicen el ángulo al que te dolerá a ti.</li>
+<li>Espondilolistesis: el deslizamiento de L4 es un parámetro (una parte fija y otra que crece con la carga y el movimiento). El estrechamiento del canal se mide entre hueso y hueso. El ligamento amarillo no está modelado como volumen: su abombamiento en extensión se suma como un término del índice de compresión.</li>
+<li>Disco por la mañana: la hidratación nocturna y la mayor rigidez a la flexión siguen a Leatt 1986 y Adams 1987. La forma exacta de la curva a lo largo del día es una aproximación.</li>
+<li>Progresión entre crisis (fisura, fibras nerviosas, multífido más pequeño, raíz sensibilizada): cada elemento está descrito en la literatura, pero el ritmo con que avanza en el modelo es ilustrativo.</li>
+<li>Registro de crisis: en claude.ai se guarda en tu espacio privado del artifact, que nadie más ve, ni siquiera quien lo publicó. Fuera de claude.ai queda solo en tu navegador. Sus gráficos describen lo que anotaste y no prueban causas.</li>
+</ul>
+<p><strong>Mi caso: diagnóstico</strong></p>
+<ul class="cite">
+<li>van der Windt DA et al. Physical examination for lumbar radiculopathy due to disc herniation in patients with low-back pain. Cochrane Database Syst Rev 2010;CD007431. Majlesi J et al. J Clin Rheumatol 2008;14:87–91.</li>
+<li>Gilbert KK, Brismée JM et al. Lumbosacral nerve root displacement and strain, partes 1 y 2. Spine 2007. Kobayashi S et al. Spine 2003. Boyd BS et al. BMC Neurol 2010 (dato tomado de fuente secundaria).</li>
+<li>Laslett M et al. Spine J 2005. Jacobsen S et al. Spine 2007. Kalichman L et al. Spine 2009. Suri P et al. JAMA 2010;304:2628–36. Segebarth B et al. J Spinal Disord Tech 2015.</li>
+<li>Juch JNS et al. (MINT). JAMA 2017;318:68–81.</li>
+</ul>
+<p><strong>Mi caso: por qué vuelve</strong></p>
+<ul class="cite">
+<li>da Silva T et al. J Physiother 2019;65:159–65. Steffens D et al. What triggers an episode of acute low back pain? A case-crossover study. Arthritis Care Res 2015;67:403–10.</li>
+<li>Callaghan JP, McGill SM. Clin Biomech 2001;16:28–37. Hides JA et al. Spine 1994;19:165–72. Hides JA, Jull GA, Richardson CA. Spine 2001;26:E243–8.</li>
+<li>Leatt P, Reilly T, Troup JDG. Br J Sports Med 1986;20:119. Martin JT et al. 2022 (revista no confirmada). Adams MA, Dolan P, Hutton WC. Spine 1987;12:130–7. Snook SH et al. Spine 1998;23:2601–7. McGill SM, Brown S. Clin Biomech 1992;7:43–6.</li>
+</ul>
+<p><strong>Mi caso: indicaciones</strong></p>
+<ul class="cite">
+<li>Prevención: Steffens D et al. JAMA Intern Med 2016;176:199–208. Shiri R, Coggon D, Falah-Hassani K. Am J Epidemiol 2018;187:1093–101. Pocovi NC et al. (WalkBack). Lancet 2024;404:134–44. de Campos TF et al. (TOPS). JOSPT 2021. Verbeek JH et al. Cochrane Database Syst Rev 2011;CD005958. Saraceni N et al. JOSPT 2020;50:121–30. Shiri R et al. 2010 (tabaco: Am J Med; obesidad: Am J Epidemiol).</li>
+<li>Crisis: Dahm KT et al. Cochrane 2010;CD007612. van der Gaag WH et al. Cochrane 2020;CD013581. Williams CM et al. (PACE). Lancet 2014;384:1586–96. Jones CMP et al. (OPAL). Lancet 2023;402:304–12. Mathieson S et al. (PRECISE). N Engl J Med 2017;376:1111–20. Goldberg H et al. JAMA 2015. Oliveira CB et al. Cochrane 2020;CD013577.</li>
+<li>Dolor persistente: Kent P et al. (RESTORE). Lancet 2023;401:1866–77.</li>
+<li>Cirugía: Peul WC et al. N Engl J Med 2007;356:2245–56. Bailey CS et al. N Engl J Med 2020;382:1093–102. Geere JH et al. Bone Joint J 2023;105-B:315–22. Fairbank J et al. BMJ 2005;330:1233. Brox JI et al. Spine 2003;28:1913–21. Mannion AF, Brox JI, Fairbank JC. Spine J 2013;13:1438–48. Hellum C et al. BMJ 2011;342:d2786. Bråten LCH et al. (AIM). BMJ 2019;367:l5654.</li>
+</ul>
+<p class="cite">Las citas de las pestañas Episodio, Ejercicios y Mi caso se verificaron a nivel de resumen. Algunas cifras provienen de fuentes secundarias y lo indico donde aparecen.</p>`;

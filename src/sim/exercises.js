@@ -12,7 +12,7 @@ export const FLOOR_Y = -935;
 const BASE = {
   body: [0, 0, 0], lum: 0, tho: 0, neck: 0, lumLat: 0, thoLat: 0, lumRot: 0, thoRot: 0, pel: 0,
   hipL: 0, hipR: 0, abdL: 0, abdR: 0, hrotL: 0, hrotR: 0, kneeL: 0, kneeR: 0, ankL: 0, ankR: 0,
-  shFL: 0, shFR: 0, shAL: 0, shAR: 0, elbL: 0, elbR: 0, armComp: 0, act: 0.2, side: null, post: null,
+  shFL: 0, shFR: 0, shAL: 0, shAR: 0, elbL: 0, elbR: 0, armComp: 0, pelRot: 0, pelList: 0, act: 0.2, side: null, post: null,
 };
 
 // posturas de partida reutilizables
@@ -301,21 +301,29 @@ export class ExerciseController {
     app.scene.add(this.stool);
   }
 
-  start(id) {
+  // id de un ejercicio del catálogo, o una definición propia (demostraciones del examen, marcha, tareas diarias)
+  start(idOrDef) {
     const app = this.app;
-    this.ex = EXERCISES.find((e) => e.id === id) || EXERCISES[0];
+    this.ex = typeof idOrDef === 'object' ? idOrDef : EXERCISES.find((e) => e.id === idOrDef) || EXERCISES[0];
     this.active = true;
     this.paused = false;
     this.t0 = performance.now();
-    // tiempos absolutos de cada clave
-    let t = 0;
-    let acc = { ...BASE, ...this.ex.keys[0].pose };
-    this.track = this.ex.keys.map((k, i) => {
-      if (i > 0) { acc = { ...acc, ...k.pose }; t += k.d; }
-      const start = t; t += k.hold || 0;
-      return { t0: start, t1: t, pose: { ...acc } };
-    });
-    this.period = t + (this.ex.keys[1]?.d || 1.5);
+    this.mods = {};
+    if (this.ex.fn) {
+      // pose procedural (por ejemplo, la marcha): fn(fase 0..1) → ángulos
+      this.track = null;
+      this.period = this.ex.period || 1.1;
+    } else {
+      // tiempos absolutos de cada clave
+      let t = 0;
+      let acc = { ...BASE, ...this.ex.keys[0].pose };
+      this.track = this.ex.keys.map((k, i) => {
+        if (i > 0) { acc = { ...acc, ...k.pose }; t += k.d; }
+        const start = t; t += k.hold || 0;
+        return { t0: start, t1: t, pose: { ...acc } };
+      });
+      this.period = t + (this.ex.keys[1]?.d || 1.5);
+    }
     app.posture.override = this;
     app.animator.stop();
     app.posture.set({ ...DEFAULT_STATE, gaze: 0 });
@@ -368,6 +376,14 @@ export class ExerciseController {
 
   // pose interpolada en el instante t del ciclo
   sampleAt(t) {
+    if (this.ex.fn) {
+      const ph = (t / this.period) % 1;
+      const p = { ...BASE, ...(this.ex.base || {}), ...this.ex.fn(ph) };
+      p.body = p.body || [0, 0, 0];
+      this.phase = ph;
+      this.phaseSide = p.side || null;
+      return this.applyMods(p);
+    }
     const tr = this.track;
     let i = tr.findIndex((k) => t < k.t0);
     let a, b, u;
@@ -387,6 +403,13 @@ export class ExerciseController {
       else p[k] = va + (vb - va) * e;
     }
     this.phaseSide = u < 0.5 ? a.pose.side : b.pose.side;
+    this.phase = t / this.period;
+    return this.applyMods(p);
+  }
+
+  // ajustes añadidos desde la interfaz (p. ej., subir la punta del pie o flexionar el cuello durante una prueba)
+  applyMods(p) {
+    for (const [k, v] of Object.entries(this.mods || {})) if (typeof p[k] === 'number') p[k] += v;
     return p;
   }
 
@@ -403,6 +426,8 @@ export class ExerciseController {
     distribute(out, LUMBAR_SEGS, p.lumRot, 'rot');
     distribute(out, THORACIC_SEGS, p.thoRot, 'rot');
     R.pelvisTilt += p.pel;
+    R.pelvisRot += p.pelRot;
+    R.pelvisList += p.pelList;
     R.body.rx = p.body[0]; R.body.ry = p.body[1]; R.body.rz = p.body[2];
     R.body.x = 0; R.body.y = 0; R.body.z = 0;
     const sit = !!(p.post && p.post.sit > 0.5);
@@ -453,13 +478,17 @@ export class ExerciseController {
         let k = 1;
         if (m.lat === 'same' && side) k = s === side ? 1 : 0.3;
         if (m.lat === 'opp' && side) k = s === side ? 0.3 : 1;
-        lvl[m.id + s] = Math.max(lvl[m.id + s] || 0, m.lv * k * p.act);
+        if (m.lat === 'only' && side) k = s === side ? 1 : 0.05;
+        // patrón de marcha: cada lado en su propia fase (el izquierdo medio ciclo después)
+        if (m.fn) k = m.fn(((this.phase || 0) + (s === 'L' ? 0.5 : 0)) % 1);
+        lvl[m.id + s] = Math.max(lvl[m.id + s] || 0, m.lv * k * (m.fn ? 1 : p.act));
       }
     }
     for (const mu of app.muscles) {
       const v = lvl[mu.id + mu.side] ?? 0.03;
       for (const s of mu.strands) { s.act = v; s.guard = 0; }
     }
+    ex.onFrame?.(app, this);
   }
 
   // encuadre automático según la caja de la piel

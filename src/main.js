@@ -18,6 +18,7 @@ import { PostureController, PostureAnimator } from './sim/posture.js';
 import { Biomech, estimateActivation, compressionIndex, affectedRoot } from './sim/biomech.js';
 import { EpisodeController } from './sim/episode.js';
 import { ExerciseController } from './sim/exercises.js';
+import { NeuralModel } from './sim/neural.js';
 import { Picker } from './core/picker.js';
 import { UI } from './ui/ui.js';
 
@@ -150,6 +151,8 @@ async function boot() {
   app.pathology = {};
   app.selected = null;
   app.compression = {};
+  app.neural = new NeuralModel(app);
+  app.rootIrritation = {};
   app.episode = new EpisodeController(app);
   app.exercise = new ExerciseController(app);
 
@@ -158,6 +161,7 @@ async function boot() {
     const info = posture.apply();
     discs.update(1, camera);
     registry.update();
+    app.neural.update();
     const st = posture.state;
     const frRelax = st.sit ? 0 : THREE.MathUtils.smoothstep(st.flex, 0.62, 0.82);
     const m = biomech.compute(st, frRelax);
@@ -167,24 +171,49 @@ async function boot() {
     const comp = {};
     for (const n of nerves) if (n.root) for (const s of n.strands) s.extra = 0;
     for (const [segId, p] of Object.entries(app.pathology)) {
-      if (!p || !p.hern || p.hern === 'none') continue;
+      if (!p) continue;
+      // espondilolistesis: el deslizamiento estrecha el canal (ambas raíces que bajan) y el foramen (la raíz que sale)
+      if (p.slip && biomech.canalPairs[segId]) {
+        const [up, lo] = segId.split('-');
+        const slipNow = rig.slipNow[segId] || 0;
+        const cc = biomech.canalChange(segId);
+        for (const side of ['L', 'R']) {
+          const trav = lo === 'S1' ? 'S1' : lo; // raíz que desciende por el receso lateral
+          // el ligamento amarillo se pliega hacia el canal en extensión y se estira en flexión (no está en la geometría ósea)
+          const segSt = rig.segmentState[segId], segRom = discs.byId[segId].seg.rom;
+          const extF = Math.max(0, -segSt.flex) / (segRom.ext || 1), flxF = Math.max(0, segSt.flex) / (segRom.flex || 1);
+          const loadF = THREE.MathUtils.clamp(Math.cos(rig.body.rx * Math.PI / 180), 0, 1);
+          const idxT = THREE.MathUtils.clamp(((-cc - 0.12) * 1.6 + slipNow / 40 + 0.25 * extF - 0.15 * flxF) * (0.55 + 0.45 * loadF), 0, 1);
+          const fk = segId + side;
+          const fch = biomech.foramenPairs[fk] ? biomech.foramenChange(fk) : 0;
+          const idxE = THREE.MathUtils.clamp((-fch - 0.08) * 1.5 + slipNow / 60, 0, 1);
+          for (const [root, idx, zone] of [[trav, idxT, 'central'], [up, idxE, 'foraminal']]) {
+            const prev = comp[root + side];
+            if (!prev || prev.idx < idx) comp[root + side] = { idx, seg: segId, root, side, zone, hern: 'slip', push: 0, forCh: fch, strain: 0, canal: cc, slip: slipNow };
+            const rootItem = nerves.find((n) => n.root === root && n.side === side);
+            if (rootItem) for (const s of rootItem.strands) s.extra = Math.max(s.extra || 0, idx);
+          }
+        }
+      }
+      if (!p.hern || p.hern === 'none') continue;
       const d = discs.byId[segId];
       const root = affectedRoot(segId, p.zone);
       const sides = p.zone === 'central' ? ['L', 'R'] : [p.side];
       for (const side of sides) {
         const rootItem = nerves.find((n) => n.root === root && n.side === side);
-        const strain = rootItem ? rootItem.strands[0].strain : 0;
+        const strain = rootItem ? rootItem.strands[0].strain + (rootItem.strands[0].tension || 0) : 0;
         const fk = segId + side;
         const forCh = biomech.foramenPairs[fk] ? biomech.foramenChange(fk) : 0;
         const idx = compressionIndex(p.hern, p.zone, { push: d.state.push, foramenChange: forCh, rootStrain: strain, gradeFactor: p.zone === 'central' ? -0.35 : 0 });
-        comp[root + side] = { idx, seg: segId, root, side, zone: p.zone, hern: p.hern, push: d.state.push, forCh, strain };
-        if (rootItem) for (const s of rootItem.strands) s.extra = idx;
+        if (!comp[root + side] || comp[root + side].idx < idx) comp[root + side] = { idx, seg: segId, root, side, zone: p.zone, hern: p.hern, push: d.state.push, forCh, strain };
+        if (rootItem) for (const s of rootItem.strands) s.extra = Math.max(s.extra || 0, idx);
       }
     }
     app.compression = comp;
     if (app.explode) app.applyExplode();
     app.episode?.frame();
     app.exercise?.frame?.();
+    app.caseHook?.();
     for (const it of items) if (it.strands) { const on = it === app.selected || (app._extraHL && app._extraHL.includes(it)); for (const s of it.strands) s.hl = on ? 1 : 0; }
     registry.update();
     app.info = info;
@@ -196,7 +225,7 @@ async function boot() {
   app.layerState = {
     vertebrae: true, pelvis: true, thorax: true, skull: true, limbs: true, arms: false, legs: true,
     discs: true, ligaments: true, neural: true, dura: true, peripheral: true, fascia: false, skin: false,
-    muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false,
+    muscle2: true, muscle3: true, muscle4: false, muscle5: false, muscle6: false, muscle7: false, muscle8: false,
   };
   app.opacity = { bones: 1, muscles: 1 };
   app.isolated = null;
@@ -232,6 +261,7 @@ async function boot() {
   app.setDissection = (depth) => {
     for (let l = 2; l <= 7; l++) app.layerState['muscle' + l] = l <= depth && !(l === 6 && depth < 7);
     if (depth >= 7) app.layerState.muscle6 = true;
+    app.layerState.muscle8 = depth >= 7;
     app.applyLayers();
   };
 
@@ -242,6 +272,7 @@ async function boot() {
     2: [4, 0, -28], 3: [22, 0, -62], 4: [34, 0, -100], 5: [48, 0, -145], 7: [44, 0, -95],
     psoas: [40, 0, 45], iliacus: [44, 0, 40], ql: [40, 0, -40], rectus: [12, 0, 85], eo: [95, 0, 45], io: [62, 0, 28], ta: [34, 0, 14],
     gmed: [70, 0, -40], piriformis: [40, 0, -60], hamstrings: [30, 0, -60],
+    quadriceps: [20, 0, 70], tibAnt: [30, 0, 45], ehl: [40, 0, 30], gastroc: [10, 0, -70], soleus: [10, 0, -38],
   };
   app.explode = 0;
   const _off = new THREE.Vector3();
@@ -348,14 +379,14 @@ async function boot() {
       // raíz y foramen del lado afectado, desde atrás y de ese lado
       rootObl: () => {
         const d = discs.byId[app.episodeSeg || 'L4-L5'];
-        const sx = (app.episode?.cfg.side || 'L') === 'L' ? 1 : -1;
+        const sx = (app.focusSide || app.episode?.cfg.side || 'L') === 'L' ? 1 : -1;
         const t = P(d.upperBone, [16 * sx, -d.Hup / 2 - 14, -14]);
         return [t.clone().add(V(330 * sx, 170, -330)), t];
       },
       // cuerpo entero orientado para ver el dermatoma de la raíz afectada
       painLeg: () => {
         const ep = app.episode;
-        const sx = (ep?.cfg.side || 'L') === 'L' ? 1 : -1;
+        const sx = (app.focusSide || ep?.cfg.side || 'L') === 'L' ? 1 : -1;
         const root = ep?.S.root;
         const az = (root === 'L5' ? 62 : root === 'S1' ? 28 : root === 'L4' ? 128 : 22) * Math.PI / 180;
         const D = 2600;
@@ -364,10 +395,16 @@ async function boot() {
       },
       // tronco y pelvis por detrás, con la plomada, para ver el shift
       exercise: () => app.exercise.frameCamera(camera, app.free),
+      // corte sagital de L4-L5 visto desde el lado cortado, como una radiografía lateral
+      listLat: () => { const t = P('L4', [0, -20, -12]); return [t.clone().add(V(-560, 40, 10)), t]; },
+      // discos lumbares de lado y de cerca
+      discLat: () => { const sx = (app.focusSide || 'L') === 'L' ? 1 : -1; const t = P('L4', [0, -10, 0]); return [t.clone().add(V(430 * sx, 60, 60)), t]; },
+      // columna lumbar por detrás y del lado de los síntomas
+      lumbarSide: () => { const sx = (app.focusSide || 'L') === 'L' ? 1 : -1; const t = P('L4', [0, 0, -20]); return [t.clone().add(V(330 * sx, 130, -340)), t]; },
       shiftPost: () => { const t = R('L2', [0, 40, 0]); return [t.clone().add(V(0, 120, -1900)), t]; },
       // lateral desde el lado afectado, con margen para la flexión
       lateralAff: () => {
-        const sx = (app.episode?.cfg.side || 'L') === 'L' ? 1 : -1;
+        const sx = (app.focusSide || app.episode?.cfg.side || 'L') === 'L' ? 1 : -1;
         const t = R('S1', [0, 20, 0]).add(V(0, -260, 300));
         return [t.clone().add(V(2750 * sx, 260, 260)), t];
       },
@@ -452,6 +489,12 @@ async function boot() {
       controls.target.lerpVectors(tween.t0, tween.t1, e);
       if (u >= 1) tween = null;
     }
+    // cámara que acompaña a una vértebra (demostraciones de cerca mientras el cuerpo se mueve)
+    if (app.follow && !tween) {
+      const fp = app.spinePoint(app.follow.bone, app.follow.local);
+      if (app.follow.last) { const dl = fp.clone().sub(app.follow.last); camera.position.add(dl); controls.target.add(dl); }
+      app.follow.last = fp;
+    } else if (app.follow) app.follow.last = null;
     controls.update();
     if (discs.cutaway) discs.orientCut(camera);
     renderer.render(scene, camera);

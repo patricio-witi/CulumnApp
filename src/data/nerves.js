@@ -128,7 +128,35 @@ export function nerveCatalog() {
       r: [[5, 3.4], [7, 3.6], [7.5, 3.6], [6.5, 3.6], [5.5, 3.6], [5, 3.6], [4.5, 3.4]], up: [0, 0, -1], color: NERVE_YELLOW, seg: 8,
     };
     const trunk = { pts: [A('L4.foramen' + s, [x * 11, -7, 12]), A('L5.foramen' + s, [x * 13, -6, 14]), A('sacrum.alaTop' + s, [-x * 8, -6, 18]), A('sacrum.aforS1' + s, [x * 18, -8, 14]), A('sacrum.aforS2' + s, [x * 22, -6, 14])], r: [[2.4, 2.2], [3.2, 3], [3.6, 3.2], [4.2, 3.4], [5, 3.4]], up: [0, 0, 1], color: NERVE_YELLOW };
-    out.push({ id: `sciatic${s}`, name: `Nervio ciático y tronco lumbosacro (${sideName})`, latin: 'n. ischiadicus', side: s, kind: 'nerve', fas: [sciatic, trunk] });
+    // En el hueco poplíteo se divide: nervio tibial (detrás de la rodilla, la pantorrilla y el maléolo interno, hasta la planta)
+    // y peroneo común (rodea la cabeza del peroné y baja por delante hasta el dorso del pie).
+    const tib = 'tibia' + s, ft = 'foot' + s;
+    const tibial = {
+      pts: [
+        A('femur' + s + '.popliteal', [0, -6, -2]),
+        A(tib + '.knee', [-x * 2, -34, -40]),
+        A(tib + '.calf', [-x * 6, -10, 12]),
+        A(tib + '.calf', [-x * 10, -150, 26]),
+        A(tib + '.medMall', [-x * 2, 30, -16]),
+        A(tib + '.medMall', [x * 4, -8, -18]),
+        A(ft + '.heel', [-x * 12, 6, 34]),
+        A(ft + '.ball', [-x * 6, 2, -50]),
+      ],
+      r: [[4, 3.2], [3.6, 3], [3.2, 2.8], [3, 2.6], [2.6, 2.3], [2.4, 2.2], [2, 1.8], [1.6, 1.4]], up: [0, 0, -1], color: NERVE_YELLOW, seg: 7,
+    };
+    const fibular = {
+      pts: [
+        A('femur' + s + '.popliteal', [x * 10, -4, 0]),
+        A(tib + '.fibHead', [x * 6, 10, -10]),
+        A(tib + '.fibHead', [x * 8, -14, 4]),
+        A(tib + '.fibHead', [x * 2, -40, 22]),
+        A(tib + '.shin', [x * 22, -10, 16]),
+        A(tib + '.ankle', [x * 6, 24, 24]),
+        A(ft + '.dorsum', [0, 6, 4]),
+      ],
+      r: [[2.8, 2.4], [2.6, 2.2], [2.4, 2], [2.2, 2], [2, 1.8], [1.8, 1.6], [1.4, 1.3]], up: [0, 0, 1], color: NERVE_YELLOW, seg: 7,
+    };
+    out.push({ id: `sciatic${s}`, name: `Nervio ciático, tibial y peroneo (${sideName})`, latin: 'n. ischiadicus, n. tibialis, n. fibularis communis', side: s, kind: 'nerve', fas: [sciatic, trunk, tibial, fibular] });
     // Femoral (L2–L4) y obturador
     const femoral = { pts: [A('L3.foramen' + s, [x * 12, -8, 12]), A('L4.lat' + s, [x * 24, -4, 18]), A('L5.lat' + s, [x * 32, -10, 22]), A('pelvis.iliopectineal' + s, [x * 20, 14, 2]), A('femur' + s + '.head', [x * 4, -40, 46]), A('femur' + s + '.head', [x * 12, -120, 40])], r: [[2.4, 2.2], [3, 2.8], [3.4, 3], [3.6, 2.8], [3.2, 2.4], [2.6, 2]], up: [0, 0, 1], color: NERVE_YELLOW };
     const obtur = { pts: [A('L4.lat' + s, [x * 22, -6, 16]), A('L5.lat' + s, [x * 18, -14, 12]), A('sacrum.ala1' + s, [-x * 4, -14, 30]), A('pelvis.obturator' + s, [-x * 8, 14, 0]), A('pelvis.obturator' + s, [x * 4, -10, 10])], r: [[1.8, 1.8], [2, 2], [2, 2], [2, 2], [1.6, 1.6]], up: [0, 0, 1], color: NERVE_YELLOW };

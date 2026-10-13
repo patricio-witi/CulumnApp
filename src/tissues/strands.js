@@ -178,7 +178,7 @@ export class StrandRegistry {
       st.len = L;
       st.strain = L / st.restLen - 1;
       const i = st.id * 4;
-      this.data[i] = st.strain;
+      this.data[i] = st.strain + (st.tension || 0); // tensión neural transmitida desde la pierna (raíces)
       this.data[i + 1] = st.act;
       this.data[i + 2] = st.hl;
       this.data[i + 3] = st.extra || 0;

@@ -111,7 +111,7 @@ export class SpineRig {
     this.root.updateMatrixWorld(true);
     this.boneList = Object.values(this.bones);
     this.segmentState = {};
-    for (const seg of SEGMENTS) this.segmentState[seg.id] = { flex: 0, lat: 0, rot: 0, settle: 0, shift: 0 };
+    for (const seg of SEGMENTS) this.segmentState[seg.id] = { flex: 0, lat: 0, rot: 0, settle: 0, shift: 0, slip: 0 };
     this.pelvisTilt = 0; // + = anteversión (rotación anterior de la pelvis)
     this.pelvisRot = 0;
     this.pelvisList = 0;
@@ -123,6 +123,9 @@ export class SpineRig {
     this.elbow = { L: 0, R: 0 };
     this.body = { rx: 0, ry: 0, rz: 0, x: 0, y: 0, z: 0 };
     this.discLoss = {}; // segmento → mm de pérdida de altura
+    this.discHydration = {}; // segmento → mm de altura extra por hidratación (mañana) o pérdida (noche, negativo)
+    this.slip = {}; // segmento → { base, dyn } deslizamiento anterior (espondilolistesis), mm
+    this.slipNow = {}; // segmento → mm de deslizamiento aplicado en la pose actual
   }
 
   // matriz del rig (coordenadas locales del root) de un hueso
@@ -158,6 +161,8 @@ export class SpineRig {
       _qa.setFromAxisAngle(AZ, sg * this.shoulder[side].abd * DEG); hum.quaternion.premultiply(_qa);
       this.bones['forearm' + side].quaternion.setFromAxisAngle(AX, -this.elbow[side] * DEG);
     }
+    // carga axial por gravedad: 1 de pie, ~0 acostado (la listesis se reduce al descargar)
+    const loadF = THREE.MathUtils.clamp(Math.cos(this.body.rx * DEG) * Math.cos(this.body.rz * DEG), 0, 1);
     for (const seg of SEGMENTS) {
       const j = this.joints[seg.id];
       const st = this.segmentState[seg.id];
@@ -174,7 +179,17 @@ export class SpineRig {
       const loss = (this.discLoss[seg.id] || 0) + (st.settle || 0);
       b.position.copy(ur.p);
       b.position.y -= loss * 0.98;
+      b.position.y += (this.discHydration[seg.id] || 0) * 0.98;
       b.position.x += st.shift || 0;
+      // espondilolistesis: la vértebra superior se desliza hacia delante; más en flexión y de pie
+      const sl = this.slip[seg.id];
+      let slip = st.slip || 0;
+      if (sl) {
+        const fr = st.flex >= 0 ? st.flex / (seg.rom.flex || 1) : st.flex / (seg.rom.ext || 1);
+        slip += sl.base * (0.65 + 0.35 * loadF) + (sl.dyn || 0) * THREE.MathUtils.clamp(fr, -0.6, 1) * (0.4 + 0.6 * loadF);
+      }
+      this.slipNow[seg.id] = slip;
+      b.position.z += slip;
     }
     this.root.updateMatrixWorld(true);
     this.updateBlended();

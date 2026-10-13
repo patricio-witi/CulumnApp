@@ -335,6 +335,30 @@ function hipMuscles() {
   return { piri, gmed, gmax, hams };
 }
 
+// Muslo y pierna: los músculos que se exploran en el examen neurológico y que trabajan al caminar
+function legMuscles() {
+  const quad = [], ta = [], ehl = [], gastro = [], soleus = [];
+  const RED4 = 0xa13a30;
+  // Cuádriceps (L2–L4; reflejo rotuliano L4): recto femoral desde la espina ilíaca anteroinferior, vastos desde el fémur;
+  // todos pasan por delante de la rodilla (rótula) hasta la tuberosidad de la tibia.
+  const patella = A('femurL.knee', [0, 16, 44]);
+  const tub = A('tibiaL.tuberosity', [0, 6, 4]);
+  quad.push({ pts: [A('pelvis.AIISL', [0, -6, 2]), A('femurL.head', [12, -90, 52]), A('femurL.asperaMid', [-2, -10, 62]), A('femurL.knee', [0, 56, 48]), patella, tub], r: [[4, 4], [13, 11], [14, 12], [10, 8], [7, 4], [5, 3]], tendon: [0.06, 0.2], up: [0, 0, 1], color: RED4, superficial: true });
+  quad.push({ pts: [A('femurL.GT', [6, -10, 12]), A('femurL.asperaUp', [26, -40, 40]), A('femurL.asperaMid', [26, -20, 46]), A('femurL.knee', [18, 50, 40]), patella, tub], r: [[8, 6], [15, 12], [15, 12], [10, 8], [6, 4], [5, 3]], tendon: [0.04, 0.18], up: [1, 0, 0.6], color: RED4 });
+  quad.push({ pts: [A('femurL.LT', [-4, -30, 20]), A('femurL.asperaMid', [-22, -40, 36]), A('femurL.knee', [-22, 64, 34]), A('femurL.knee', [-12, 30, 40]), patella, tub], r: [[6, 5], [12, 10], [14, 11], [10, 8], [6, 4], [5, 3]], tendon: [0.04, 0.16], up: [-1, 0, 0.6], color: RED4 });
+  // Tibial anterior (L4–L5): cara lateral de la tibia → por delante del tobillo → borde interno del pie. Levanta la punta del pie.
+  ta.push({ pts: [A('tibiaL.latCond', [-6, -24, 30]), A('tibiaL.shin', [12, 70, 22]), A('tibiaL.shin', [8, -60, 22]), A('tibiaL.ankle', [-4, 26, 26]), A('footL.dorsum', [-14, -2, -16])], r: [[6, 5], [8, 6], [6, 5], [3, 2.5], [2.6, 2]], tendon: [0.04, 0.45], up: [1, 0, 0], color: RED4 });
+  // Extensor largo del dedo gordo (L5): peroné → dorso del pie → dedo gordo. Su debilidad es un signo clásico de L5.
+  ehl.push({ pts: [A('tibiaL.shin', [22, 40, 10]), A('tibiaL.shin', [16, -80, 18]), A('tibiaL.ankle', [2, 24, 28]), A('footL.dorsum', [-6, 2, 14]), A('footL.toe', [2, 10, -14])], r: [[4, 3], [5, 4], [2.2, 2], [1.8, 1.6], [1.5, 1.3]], tendon: [0.05, 0.5], up: [1, 0, 0], color: RED4 });
+  // Gastrocnemio (S1–S2): cóndilos femorales → pantorrilla → tendón de Aquiles → talón. Ponerse de puntillas; reflejo aquíleo (S1).
+  for (const lat of [-1, 1]) {
+    gastro.push({ pts: [A('femurL.knee', [lat * 18, 18, -24]), A('tibiaL.calf', [lat * 14, 30, -14]), A('tibiaL.calf', [lat * 10, -40, -18]), A('tibiaL.ankle', [0, 60, -40]), A('footL.heel', [0, 16, -6])], r: [[6, 5], [13, 10], [11, 9], [4, 3], [4, 3]], tendon: [0.08, 0.38], up: [0, 0, -1], color: RED4, superficial: true });
+  }
+  // Sóleo (S1–S2): tibia y peroné → Aquiles. Profundo al gastrocnemio.
+  soleus.push({ pts: [A('tibiaL.fibHead', [-6, -20, -10]), A('tibiaL.calf', [0, -20, 2]), A('tibiaL.calf', [0, -120, 4]), A('tibiaL.ankle', [0, 50, -32]), A('footL.heel', [0, 18, -2])], r: [[7, 5], [14, 8], [12, 7], [4, 3], [4, 3]], tendon: [0.05, 0.3], up: [0, 0, -1], color: RED4 });
+  return { quad, ta, ehl, gastro, soleus };
+}
+
 function abdominals() {
   const rect = [], eo = [], io = [], ta = [];
   // Recto del abdomen: del pubis a cartílagos 5-7 y xifoides; intersecciones tendinosas
@@ -376,6 +400,7 @@ export function muscleCatalog() {
   const qp = qlPsoas();
   const hp = hipMuscles();
   const ab = abdominals();
+  const lg = legMuscles();
   return [
     { id: 'multifidus', name: 'Multífido', latin: 'm. multifidus', layer: 2, fas: m, color: DEEP },
     { id: 'rotatores', name: 'Rotadores', latin: 'mm. rotatores', layer: 2, fas: rotatores(), color: DEEP },
@@ -417,5 +442,10 @@ export function muscleCatalog() {
     { id: 'eo', name: 'Oblicuo externo', latin: 'm. obliquus externus abdominis', layer: 6, fas: ab.eo },
     { id: 'io', name: 'Oblicuo interno', latin: 'm. obliquus internus abdominis', layer: 6, fas: ab.io },
     { id: 'ta', name: 'Transverso del abdomen', latin: 'm. transversus abdominis', layer: 6, fas: ab.ta },
+    { id: 'quadriceps', name: 'Cuádriceps', latin: 'm. quadriceps femoris', layer: 8, fas: lg.quad },
+    { id: 'tibAnt', name: 'Tibial anterior', latin: 'm. tibialis anterior', layer: 8, fas: lg.ta },
+    { id: 'ehl', name: 'Extensor largo del dedo gordo', latin: 'm. extensor hallucis longus', layer: 8, fas: lg.ehl },
+    { id: 'gastroc', name: 'Gastrocnemio (gemelos)', latin: 'm. gastrocnemius', layer: 8, fas: lg.gastro },
+    { id: 'soleus', name: 'Sóleo', latin: 'm. soleus', layer: 8, fas: lg.soleus },
   ];
 }
